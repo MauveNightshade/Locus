@@ -1513,6 +1513,18 @@ namespace Locus
                     case "capture_viewport":
                         return await HandleCaptureViewport(reqId, msg.message).ConfigureAwait(false);
 
+                    case "find_tests":
+                        return await HandleFindTests(reqId, msg.message).ConfigureAwait(false);
+
+                    case "run_tests":
+                        return await HandleRunTests(reqId, msg.message).ConfigureAwait(false);
+
+                    case "cancel_tests":
+                        return HandleCancelTests(reqId);
+
+                    case "test_run_progress":
+                        return HandleTestRunProgress(reqId);
+
                     case "request_recompile":
                     {
                         // Hot-reload sessions write/delete files without telling
