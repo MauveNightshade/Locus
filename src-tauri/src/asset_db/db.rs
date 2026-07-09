@@ -3081,8 +3081,11 @@ pub fn delete_missing_asset_path(conn: &mut Connection, asset_path: &str) -> Res
         asset_fts::delete_by_asset_guid(&tx, g)?;
         tx.execute("DELETE FROM edges WHERE src_guid = ?1", params![g])
             .map_err(|e| format!("Failed to delete outgoing edges: {}", e))?;
-        tx.execute("DELETE FROM member_bindings WHERE src_guid = ?1", params![g])
-            .map_err(|e| format!("Failed to delete member bindings: {}", e))?;
+        tx.execute(
+            "DELETE FROM member_bindings WHERE src_guid = ?1",
+            params![g],
+        )
+        .map_err(|e| format!("Failed to delete member bindings: {}", e))?;
         tx.execute(
             "DELETE FROM asset_object_type_terms
              WHERE object_key IN (

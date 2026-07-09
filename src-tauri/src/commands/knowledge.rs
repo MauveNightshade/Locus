@@ -4510,8 +4510,7 @@ mod tests {
         let ws_canonical = dunce::canonicalize(workspace.path()).unwrap();
         assert_eq!(resolved, ws_canonical.join("LinkedDir").join("Linked.cs"));
 
-        let revealed =
-            resolve_workspace_reveal_path("LinkedDir/Linked.cs", &working_dir).unwrap();
+        let revealed = resolve_workspace_reveal_path("LinkedDir/Linked.cs", &working_dir).unwrap();
         assert_eq!(revealed, ws_canonical.join("LinkedDir").join("Linked.cs"));
     }
 
@@ -4531,8 +4530,7 @@ mod tests {
         std::fs::remove_dir_all(external.path()).unwrap();
 
         let working_dir = workspace.path().to_string_lossy().to_string();
-        let revealed =
-            resolve_workspace_reveal_path("LinkedDir/Linked.cs", &working_dir).unwrap();
+        let revealed = resolve_workspace_reveal_path("LinkedDir/Linked.cs", &working_dir).unwrap();
 
         // The file inside the dead junction is unreachable, but the junction
         // entry itself still exists and stays revealable.

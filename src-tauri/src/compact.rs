@@ -580,8 +580,10 @@ fn truncate_to_token_budget(content: &str, max_tokens: u32) -> (String, bool) {
 fn sanitize_tool_call_for_compact(tool_call: &ToolCallInfo) -> (ToolCallInfo, bool) {
     let mut sanitized = tool_call.clone();
     let mut truncated = false;
-    let (arguments, arguments_truncated) =
-        truncate_to_token_budget(&sanitized.arguments, COMPACT_REQUEST_MAX_TOOL_ARGUMENT_TOKENS);
+    let (arguments, arguments_truncated) = truncate_to_token_budget(
+        &sanitized.arguments,
+        COMPACT_REQUEST_MAX_TOOL_ARGUMENT_TOKENS,
+    );
     sanitized.arguments = arguments;
     truncated |= arguments_truncated;
     sanitized.recorded_output = None;
@@ -769,10 +771,7 @@ fn flatten_tool_interactions_for_compact(messages: &mut [ChatMessage]) {
                         tool_call.name, tool_call.arguments
                     ));
                     if let Some(output) = tool_call.server_tool_output.as_deref() {
-                        rendered.push_str(&format!(
-                            "\n[{} output]\n{}",
-                            tool_call.name, output
-                        ));
+                        rendered.push_str(&format!("\n[{} output]\n{}", tool_call.name, output));
                     }
                 }
                 message.content = format!("{}{}", message.content.trim_end(), rendered)
@@ -1563,10 +1562,7 @@ fn read_current_unity_yaml_excerpt(
             }
             _ => unreachable!(),
         };
-        return Some(truncate_for_token_budget(
-            &output,
-            max_tokens_per_file,
-        ));
+        return Some(truncate_for_token_budget(&output, max_tokens_per_file));
     }
 
     if is_hierarchical && request.object_path.is_none() {
@@ -2007,7 +2003,9 @@ pub fn export_compact_transcript(
         return None;
     }
 
-    let root = crate::commands::app_temp_dir().ok()?.join("compact-transcripts");
+    let root = crate::commands::app_temp_dir()
+        .ok()?
+        .join("compact-transcripts");
     std::fs::create_dir_all(&root).ok()?;
     let path = root.join(format!("{}.md", safe_session));
     let existing_len = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
@@ -2148,10 +2146,12 @@ mod tests {
             latest_segment_omitted: false,
         };
         let msg = build_post_compact_message("总结", "", 100, false, Some(&export));
-        assert!(msg.content.contains("No verbatim messages follow this handoff"));
         assert!(msg
             .content
-            .contains("read the full pre-compact transcript at: C:/temp/compact-transcripts/session.md"));
+            .contains("No verbatim messages follow this handoff"));
+        assert!(msg.content.contains(
+            "read the full pre-compact transcript at: C:/temp/compact-transcripts/session.md"
+        ));
 
         // Once the transcript file is capped, the handoff must not advertise
         // it as the full transcript for this round.
@@ -2162,7 +2162,9 @@ mod tests {
         let msg = build_post_compact_message("总结", "", 100, false, Some(&capped));
         assert!(!msg.content.contains("full pre-compact transcript"));
         assert!(msg.content.contains("EARLIER compaction rounds"));
-        assert!(msg.content.contains("the segment for this round was omitted"));
+        assert!(msg
+            .content
+            .contains("the segment for this round was omitted"));
     }
 
     #[test]
@@ -2720,7 +2722,14 @@ mod tests {
                 None,
                 Some("tc-1"),
             ),
-            make_message("assistant-2", MessageRole::Assistant, "done", 103, None, None),
+            make_message(
+                "assistant-2",
+                MessageRole::Assistant,
+                "done",
+                103,
+                None,
+                None,
+            ),
         ];
 
         let plan = build_compact_request_with_budget(&messages, &["system"], 258_400)
@@ -2847,7 +2856,9 @@ mod tests {
     #[test]
     fn transcript_capacity_gate_uses_size_cap() {
         assert!(!transcript_capacity_reached(0));
-        assert!(!transcript_capacity_reached(COMPACT_TRANSCRIPT_MAX_BYTES - 1));
+        assert!(!transcript_capacity_reached(
+            COMPACT_TRANSCRIPT_MAX_BYTES - 1
+        ));
         assert!(transcript_capacity_reached(COMPACT_TRANSCRIPT_MAX_BYTES));
     }
 
@@ -2858,10 +2869,7 @@ mod tests {
         assert!(was_truncated);
         // Byte-based cut keeps ~1333 chars; the old char-based cut would have
         // kept the full 4k chars (12k bytes ≈ 3k estimated tokens).
-        let kept_chars = truncated
-            .chars()
-            .take_while(|ch| *ch == '工')
-            .count();
+        let kept_chars = truncated.chars().take_while(|ch| *ch == '工').count();
         assert!(kept_chars <= 1_334, "kept {} chars", kept_chars);
         assert!(estimate_text_tokens(truncated.as_str()) <= 1_100);
     }
@@ -3232,12 +3240,11 @@ mod tests {
             ),
         ];
 
-        let section =
-            build_post_compact_restored_files_section(
-                &messages,
-                &temp_root.display().to_string(),
-                0,
-            );
+        let section = build_post_compact_restored_files_section(
+            &messages,
+            &temp_root.display().to_string(),
+            0,
+        );
 
         assert!(section.contains("Restored File Context"));
         assert!(section.contains("src/main.ts"));
@@ -3289,12 +3296,11 @@ mod tests {
             ),
         ];
 
-        let section =
-            build_post_compact_restored_files_section(
-                &messages,
-                &temp_root.display().to_string(),
-                0,
-            );
+        let section = build_post_compact_restored_files_section(
+            &messages,
+            &temp_root.display().to_string(),
+            0,
+        );
 
         assert!(section.contains("src/main.ts"));
         assert!(section.contains("line two"));
@@ -3341,12 +3347,11 @@ mod tests {
             ),
         ];
 
-        let section =
-            build_post_compact_restored_files_section(
-                &messages,
-                &temp_root.display().to_string(),
-                0,
-            );
+        let section = build_post_compact_restored_files_section(
+            &messages,
+            &temp_root.display().to_string(),
+            0,
+        );
 
         assert!(section.contains("Assets/Data/Test.asset"));
         assert!(section.contains("exact `unity_yaml_read` result"));
@@ -3405,12 +3410,11 @@ mod tests {
             ),
         ];
 
-        let section =
-            build_post_compact_restored_files_section(
-                &messages,
-                &temp_root.display().to_string(),
-                0,
-            );
+        let section = build_post_compact_restored_files_section(
+            &messages,
+            &temp_root.display().to_string(),
+            0,
+        );
 
         assert!(section.contains("PersistedAsset"));
 

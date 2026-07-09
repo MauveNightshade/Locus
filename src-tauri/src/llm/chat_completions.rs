@@ -855,8 +855,12 @@ impl ChatStreamState {
         self.apply_think_emit(emit, on_text_delta, on_thinking_delta);
     }
 
-    fn apply_think_emit<F, G>(&mut self, emit: ThinkTagEmit, on_text_delta: &F, on_thinking_delta: &G)
-    where
+    fn apply_think_emit<F, G>(
+        &mut self,
+        emit: ThinkTagEmit,
+        on_text_delta: &F,
+        on_thinking_delta: &G,
+    ) where
         F: Fn(String) + Send + 'static,
         G: Fn(String) + Send + 'static,
     {
@@ -1402,12 +1406,9 @@ mod tests {
     fn json_parse_error_hint_fires_on_client_error_with_parser_markers() {
         // Verbatim shape of the issue #106 rejection (Spring/Jackson gateway).
         let issue_106_body = r#"{"error":{"message":"JSON parse error: Unexpected character (',' (code 44)): was expecting a colon to separate field name and value","code":"400"}}"#;
-        let hint = server_json_parse_error_hint(
-            reqwest::StatusCode::BAD_REQUEST,
-            issue_106_body,
-            104_213,
-        )
-        .expect("Jackson-style parse error must produce a hint");
+        let hint =
+            server_json_parse_error_hint(reqwest::StatusCode::BAD_REQUEST, issue_106_body, 104_213)
+                .expect("Jackson-style parse error must produce a hint");
         assert!(hint.contains("104213 bytes"));
 
         assert!(server_json_parse_error_hint(
@@ -1935,8 +1936,19 @@ mod tests {
 
         // Open tag split across deltas, reasoning streamed, close tag plus
         // prose in the final delta — the wire shape vLLM/Ollama relays emit.
-        for delta in ["<thi", "nk>先分析问题", "，再给结论", "</think>\n\n结论如下"] {
-            apply_stream_chunk(content_chunk(delta), &mut state, &on_text, &on_thinking, &ignore_tool);
+        for delta in [
+            "<thi",
+            "nk>先分析问题",
+            "，再给结论",
+            "</think>\n\n结论如下",
+        ] {
+            apply_stream_chunk(
+                content_chunk(delta),
+                &mut state,
+                &on_text,
+                &on_thinking,
+                &ignore_tool,
+            );
         }
         state.flush_think_filter(&on_text, &on_thinking);
 
@@ -1946,7 +1958,10 @@ mod tests {
             thinking.lock().expect("thinking mutex poisoned").as_str(),
             "先分析问题，再给结论"
         );
-        assert_eq!(text.lock().expect("text mutex poisoned").as_str(), "结论如下");
+        assert_eq!(
+            text.lock().expect("text mutex poisoned").as_str(),
+            "结论如下"
+        );
     }
 
     #[test]
