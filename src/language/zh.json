@@ -1807,6 +1807,8 @@
   "tool.desc.unity_run_states": "运行 Unity 状态机",
   "tool.desc.unity_capture_viewport": "截取 Unity 视口",
   "tool.desc.unity_recompile": "Unity 重编译",
+  "tool.desc.unity_test_find": "查找 Unity 测试",
+  "tool.desc.unity_test_run": "运行 Unity 测试",
   "tool.desc.unity_hot_reload": "Unity 热更新（方法级补丁）",
   "tool.desc.unity_ref_search": "Unity 引用搜索",
   "tool.desc.code_find_references": "C# 查找引用",

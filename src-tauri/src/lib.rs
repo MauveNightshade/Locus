@@ -1127,6 +1127,7 @@ pub fn run() {
             commands::unity_recompile_run,
             commands::unity_recompile_probe_run,
             commands::unity_execute_snippet_run,
+            commands::unity_test_latest_snapshot,
             commands::send_unity_log,
             commands::select_unity_asset,
             commands::open_unity_asset_inspector,
