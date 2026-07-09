@@ -2872,6 +2872,8 @@ impl AgentInstance {
                 }
             }
             "unity_execute"
+            | "unity_test_find"
+            | "unity_test_run"
             | "unity_run_states"
             | "unity_capture_viewport"
             | "unity_ref_search"
@@ -16237,6 +16239,8 @@ PrefabInstance:
                     "read".to_string(),
                     "edit".to_string(),
                     "unity_execute".to_string(),
+                    "unity_test_find".to_string(),
+                    "unity_test_run".to_string(),
                     "unity_run_states".to_string(),
                     "unity_capture_viewport".to_string(),
                     "graph_view".to_string(),
@@ -16281,6 +16285,8 @@ PrefabInstance:
         assert_eq!(tool_load_mode(&items, "read"), "direct");
         assert_eq!(tool_load_mode(&items, "edit"), "direct");
         assert_eq!(tool_load_mode(&items, "unity_execute"), "direct");
+        assert_eq!(tool_load_mode(&items, "unity_test_find"), "direct");
+        assert_eq!(tool_load_mode(&items, "unity_test_run"), "direct");
         assert_eq!(tool_load_mode(&items, "knowledge_create"), "direct");
         assert_eq!(tool_load_mode(&items, "knowledge_edit"), "direct");
         assert_eq!(tool_load_mode(&items, "knowledge_move"), "lazy");
