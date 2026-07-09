@@ -12,8 +12,7 @@ use uuid::Uuid;
 
 use super::{
     exit_play_mode, is_play_mode_status, query_unity_status, send_message,
-    send_message_without_timeout, set_editor_status, transport, PipeResponse,
-    UNITY_EDITOR_STATUS_PLAYING,
+    send_message_without_timeout, transport, PipeResponse,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -287,14 +286,22 @@ where
     }
 
     let started_at = Utc::now();
-    let result = run_tests_inner(
-        project_path,
-        run_id.clone(),
-        request,
-        &mut cancel_rx,
-        &mut on_progress,
-    )
-    .await;
+    let requested_scope = request.clone();
+    let mut restore_play_mode_domain_reload = None;
+    let result = match prepare_play_mode_domain_reload(project_path, &request).await {
+        Ok(restore) => {
+            restore_play_mode_domain_reload = restore;
+            run_tests_inner(
+                project_path,
+                run_id.clone(),
+                request,
+                &mut cancel_rx,
+                &mut on_progress,
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    };
     let finished_at = Utc::now();
 
     let snapshot = match result {
@@ -318,7 +325,7 @@ where
                 status: "error".to_string(),
                 message: Some(error.message.clone()),
             },
-            requested_scope: UnityTestRunRequest::default(),
+            requested_scope,
             phase_summaries: Vec::new(),
             total_summary: UnityTestSummary::default(),
             results: Vec::new(),
@@ -328,6 +335,11 @@ where
 
     let _ = write_latest_snapshot(project_path, &snapshot);
     let _ = exit_play_mode(project_path).await;
+    if let Some(domain_reload) = restore_play_mode_domain_reload {
+        let _ =
+            crate::unity_hotreload::coordinator::set_play_mode_reload(project_path, domain_reload)
+                .await;
+    }
     let mut active = active_test_run().lock().await;
     *active = None;
 
@@ -353,12 +365,13 @@ where
     }
 
     let started_at = Utc::now();
+    let requested_scope = request.clone();
     let modes = requested_phase_modes(&request);
-    let needs_playmode = modes.iter().any(|mode| *mode == UnityTestMode::Playmode);
-    let preparation = prepare_for_run(project_path, needs_playmode).await?;
+    let preparation = prepare_for_run(project_path).await?;
 
     let mut phases = Vec::new();
     for mode in modes {
+        prepare_for_phase(project_path, &mode).await?;
         request.filter.test_mode = mode.clone();
         let phase = run_phase(project_path, &run_id, &request, cancel_rx, on_progress).await?;
         phases.push(phase);
@@ -382,7 +395,7 @@ where
         finished_at: Utc::now(),
         terminal_status,
         preparation,
-        requested_scope: request,
+        requested_scope,
         phase_summaries: phases,
         total_summary,
         results,
@@ -398,10 +411,42 @@ fn requested_phase_modes(request: &UnityTestRunRequest) -> Vec<UnityTestMode> {
     }
 }
 
-async fn prepare_for_run(
+async fn prepare_play_mode_domain_reload(
     project_path: &str,
-    needs_playmode: bool,
-) -> Result<UnityTestPreparation, UnityTestError> {
+    request: &UnityTestRunRequest,
+) -> Result<Option<bool>, UnityTestError> {
+    if !requested_phase_modes(request)
+        .iter()
+        .any(|mode| *mode == UnityTestMode::Playmode)
+    {
+        return Ok(None);
+    }
+
+    let (_connected, _code_optimization, domain_reload_on_play) =
+        crate::unity_hotreload::coordinator::detect_hot_reload_editor_settings(project_path).await;
+    if domain_reload_on_play != Some(true) {
+        return Ok(None);
+    }
+
+    let effective = crate::unity_hotreload::coordinator::set_play_mode_reload(project_path, false)
+        .await
+        .map_err(|error| {
+            UnityTestError::new(
+                "unknown",
+                format!("Failed to disable Play Mode domain reload for Unity tests: {error}"),
+            )
+        })?;
+    if effective {
+        return Err(UnityTestError::new(
+            "unknown",
+            "Unity kept Play Mode domain reload enabled; PlayMode tests cannot run over the native bridge",
+        ));
+    }
+
+    Ok(Some(true))
+}
+
+async fn prepare_for_run(project_path: &str) -> Result<UnityTestPreparation, UnityTestError> {
     let (connected, status, _) = query_unity_status(project_path).await;
     if !connected {
         return Err(UnityTestError::new(
@@ -427,24 +472,24 @@ async fn prepare_for_run(
         );
     }
 
-    if needs_playmode {
-        set_editor_status(project_path, UNITY_EDITOR_STATUS_PLAYING)
-            .await
-            .map_err(|error| UnityTestError::new("unknown", error))?;
-    } else {
-        let (_, current, _) = query_unity_status(project_path).await;
-        if is_play_mode_status(current) {
-            exit_play_mode(project_path)
-                .await
-                .map_err(|error| UnityTestError::new("unknown", error))?;
-        }
-    }
-
     Ok(UnityTestPreparation {
         method,
         status: "ok".to_string(),
         message,
     })
+}
+
+async fn prepare_for_phase(
+    project_path: &str,
+    _mode: &UnityTestMode,
+) -> Result<(), UnityTestError> {
+    let (_, current, _) = query_unity_status(project_path).await;
+    if is_play_mode_status(current) {
+        exit_play_mode(project_path)
+            .await
+            .map_err(|error| UnityTestError::new("unknown", error))?;
+    }
+    Ok(())
 }
 
 async fn run_phase<F>(
@@ -502,9 +547,28 @@ where
             response = &mut send => {
                 let response = response.map_err(map_transport_error)?;
                 let message = ok_message(response)?;
-                return serde_json::from_str::<UnityTestPhaseResult>(&message).map_err(|error| {
+                let phase_result = serde_json::from_str::<UnityTestPhaseResult>(&message).map_err(|error| {
                     UnityTestError::new("unknown", format!("Invalid Unity test phase response: {error}"))
-                });
+                })?;
+                if !matches!(phase_result.status.as_str(), "passed" | "failed") {
+                    let code = phase_result.error_code.as_deref().unwrap_or("").trim();
+                    let code = if code.is_empty() {
+                        "unknown"
+                    } else {
+                        code
+                    };
+                    let error_message = phase_result.error_message.as_deref().unwrap_or("").trim();
+                    let message = if error_message.is_empty() {
+                        format!(
+                            "Unity test phase '{}' ended with status '{}'",
+                            phase_result.test_mode, phase_result.status
+                        )
+                    } else {
+                        error_message.to_string()
+                    };
+                    return Err(UnityTestError::new(code, message));
+                }
+                return Ok(phase_result);
             }
             _ = interval.tick() => {
                 if started.elapsed() > Duration::from_millis(300) {
