@@ -1520,7 +1520,7 @@ namespace Locus
                         return await HandleRunTests(reqId, msg.message).ConfigureAwait(false);
 
                     case "cancel_tests":
-                        return HandleCancelTests(reqId);
+                        return await HandleCancelTests(reqId).ConfigureAwait(false);
 
                     case "test_run_progress":
                         return HandleTestRunProgress(reqId);

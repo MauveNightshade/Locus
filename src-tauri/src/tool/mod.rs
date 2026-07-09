@@ -621,8 +621,14 @@ mod tests {
             registry.canonical_name("unity_test_run").as_deref(),
             Some("unity_test_run")
         );
-        assert_eq!(registry.default_load_mode("unity_test_find"), ToolLoadMode::Direct);
-        assert_eq!(registry.default_load_mode("unity_test_run"), ToolLoadMode::Direct);
+        assert_eq!(
+            registry.default_load_mode("unity_test_find"),
+            ToolLoadMode::Direct
+        );
+        assert_eq!(
+            registry.default_load_mode("unity_test_run"),
+            ToolLoadMode::Direct
+        );
     }
 
     #[test]

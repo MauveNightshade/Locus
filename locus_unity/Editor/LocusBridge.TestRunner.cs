@@ -18,7 +18,7 @@ namespace Locus
         private static TestRunCallbacksProxy _activeTestCallbacks;
 
         [Serializable]
-        private sealed class TestFindRequest
+        private class TestFindRequest
         {
             public string testMode;
             public string assemblyName;
@@ -119,13 +119,20 @@ namespace Locus
 
         private static bool HasUnityTestFramework()
         {
-            return TestFrameworkApi.TryCreate(out _, out _);
+            return TestFrameworkApi.IsAvailable();
         }
 
         private static async Task<PipeEnvelope> HandleFindTests(string requestId, string json)
         {
-            if (!TestFrameworkApi.TryCreate(out var api, out var missing))
-                return ErrorResponse(requestId, missing);
+            TestFrameworkApi api;
+            try
+            {
+                api = await TestFrameworkApi.CreateAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return ErrorResponse(requestId, "test_framework_missing: " + FormatReflectionException(ex));
+            }
 
             var request = JsonUtility.FromJson<TestFindRequest>(json ?? "{}") ?? new TestFindRequest();
             var modes = RequestedModes(request.testMode);
@@ -134,7 +141,11 @@ namespace Locus
             foreach (var mode in modes)
             {
                 var root = await api.RetrieveTestTree(mode).ConfigureAwait(false);
-                assemblies.AddRange(BuildDiscoveryTree(root, mode, request));
+                var modeAssemblies = await LocusAsync.RunOnMainThreadAsync(delegate
+                {
+                    return BuildDiscoveryTree(root, mode, request);
+                }, ExecuteTimeoutMs).ConfigureAwait(false);
+                assemblies.AddRange(modeAssemblies);
             }
 
             return OkResponse(requestId, JsonUtility.ToJson(new TestDiscoveryResponse
@@ -145,8 +156,15 @@ namespace Locus
 
         private static async Task<PipeEnvelope> HandleRunTests(string requestId, string json)
         {
-            if (!TestFrameworkApi.TryCreate(out var api, out var missing))
-                return ErrorResponse(requestId, missing);
+            TestFrameworkApi api;
+            try
+            {
+                api = await TestFrameworkApi.CreateAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return ErrorResponse(requestId, "test_framework_missing: " + FormatReflectionException(ex));
+            }
 
             var request = JsonUtility.FromJson<TestRunRequest>(json ?? "{}") ?? new TestRunRequest();
             var mode = RequestedModes(request.testMode).FirstOrDefault();
@@ -188,19 +206,26 @@ namespace Locus
             }
         }
 
-        private static PipeEnvelope HandleCancelTests(string requestId)
+        private static async Task<PipeEnvelope> HandleCancelTests(string requestId)
         {
             lock (_testRunnerLock)
             {
-                try
+                if (_activeTestCallbacks == null)
+                    return OkResponse(requestId, "cancel_tests requested");
+            }
+
+            try
+            {
+                var api = await TestFrameworkApi.CreateAsync().ConfigureAwait(false);
+                await LocusAsync.RunOnMainThreadAsync(delegate
                 {
-                    if (_activeTestCallbacks != null && TestFrameworkApi.TryCreate(out var api, out _))
-                        api.CancelTestRun();
-                }
-                catch (Exception ex)
-                {
-                    return ErrorResponse(requestId, "cancel_tests failed: " + ex.Message);
-                }
+                    api.CancelTestRun();
+                    return true;
+                }, ExecuteTimeoutMs).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return ErrorResponse(requestId, "cancel_tests failed: " + FormatReflectionException(ex));
             }
             return OkResponse(requestId, "cancel_tests requested");
         }
@@ -444,7 +469,7 @@ namespace Locus
                 Action<TestRunProgressPayload> progress)
             {
                 var callback = new TestRunCallbacksProxy(api, request, mode, completion, progress);
-                callback.CallbackObject = TestFrameworkDispatchProxy.Create(api.CallbacksType, callback);
+                callback.CallbackObject = CreateTestFrameworkDispatchProxy(api.CallbacksType, callback);
                 return callback;
             }
 
@@ -646,30 +671,59 @@ namespace Locus
                 CallbacksType = callbacksType;
             }
 
-            public static bool TryCreate(out TestFrameworkApi api, out string error)
+            public static bool IsAvailable()
             {
-                api = null;
+                Type apiType;
+                Type testModeType;
+                Type filterType;
+                Type executionSettingsType;
+                Type callbacksType;
+                string error;
+                return TryResolveTypes(out apiType, out testModeType, out filterType, out executionSettingsType, out callbacksType, out error);
+            }
+
+            public static async Task<TestFrameworkApi> CreateAsync()
+            {
+                Type apiType;
+                Type testModeType;
+                Type filterType;
+                Type executionSettingsType;
+                Type callbacksType;
+                string error;
+                if (!TryResolveTypes(out apiType, out testModeType, out filterType, out executionSettingsType, out callbacksType, out error))
+                    throw new InvalidOperationException(error);
+
+                return await LocusAsync.RunOnMainThreadAsync(delegate
+                {
+                    return new TestFrameworkApi(
+                        ScriptableObject.CreateInstance(apiType),
+                        testModeType,
+                        filterType,
+                        executionSettingsType,
+                        callbacksType);
+                }, ExecuteTimeoutMs).ConfigureAwait(false);
+            }
+
+            private static bool TryResolveTypes(
+                out Type apiType,
+                out Type testModeType,
+                out Type filterType,
+                out Type executionSettingsType,
+                out Type callbacksType,
+                out string error)
+            {
                 error = null;
-                var apiType = Type.GetType("UnityEditor.TestTools.TestRunner.Api.TestRunnerApi, UnityEditor.TestRunner");
-                var testModeType = Type.GetType("UnityEditor.TestTools.TestRunner.Api.TestMode, UnityEditor.TestRunner");
-                var filterType = Type.GetType("UnityEditor.TestTools.TestRunner.Api.Filter, UnityEditor.TestRunner");
-                var executionSettingsType = Type.GetType("UnityEditor.TestTools.TestRunner.Api.ExecutionSettings, UnityEditor.TestRunner");
-                var callbacksType = Type.GetType("UnityEditor.TestTools.TestRunner.Api.ICallbacks, UnityEditor.TestRunner");
+                apiType = Type.GetType("UnityEditor.TestTools.TestRunner.Api.TestRunnerApi, UnityEditor.TestRunner");
+                testModeType = Type.GetType("UnityEditor.TestTools.TestRunner.Api.TestMode, UnityEditor.TestRunner");
+                filterType = Type.GetType("UnityEditor.TestTools.TestRunner.Api.Filter, UnityEditor.TestRunner");
+                executionSettingsType = Type.GetType("UnityEditor.TestTools.TestRunner.Api.ExecutionSettings, UnityEditor.TestRunner");
+                callbacksType = Type.GetType("UnityEditor.TestTools.TestRunner.Api.ICallbacks, UnityEditor.TestRunner");
                 if (apiType == null || testModeType == null || filterType == null || executionSettingsType == null || callbacksType == null)
                 {
                     error = "test_framework_missing";
                     return false;
                 }
-                try
-                {
-                    api = new TestFrameworkApi(Activator.CreateInstance(apiType), testModeType, filterType, executionSettingsType, callbacksType);
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    error = "test_framework_missing: " + ex.Message;
-                    return false;
-                }
+                return true;
             }
 
             public Task<object> RetrieveTestTree(string mode)
@@ -692,7 +746,7 @@ namespace Locus
                     }
                     catch (Exception ex)
                     {
-                        tcs.TrySetException(ex);
+                        tcs.TrySetException(new Exception(FormatReflectionException(ex), ex));
                     }
                 });
                 return tcs.Task;
@@ -712,24 +766,62 @@ namespace Locus
 
             public void Execute(object executionSettings)
             {
-                _api.GetType().GetMethod("Execute", new[] { _executionSettingsType }).Invoke(_api, new[] { executionSettings });
+                InvokeApi(_api.GetType().GetMethod("Execute", new[] { _executionSettingsType }), new[] { executionSettings });
             }
 
             public void RegisterCallbacks(object callbacks)
             {
-                _api.GetType().GetMethod("RegisterCallbacks", new[] { CallbacksType }).Invoke(_api, new[] { callbacks });
+                var method = _api.GetType().GetMethod("RegisterCallbacks", new[] { CallbacksType });
+                if (method != null)
+                {
+                    InvokeApi(method, new[] { callbacks });
+                    return;
+                }
+
+                method = _api.GetType().GetMethods()
+                    .FirstOrDefault(item => item.Name == "RegisterCallbacks" && item.IsGenericMethodDefinition);
+                if (method == null)
+                    throw new MissingMethodException("RegisterCallbacks");
+                method = method.MakeGenericMethod(CallbacksType);
+                var parameters = method.GetParameters();
+                InvokeApi(method, parameters.Length > 1 ? new[] { callbacks, (object)0 } : new[] { callbacks });
             }
 
             public void UnregisterCallbacks(object callbacks)
             {
-                _api.GetType().GetMethod("UnregisterCallbacks", new[] { CallbacksType }).Invoke(_api, new[] { callbacks });
+                var method = _api.GetType().GetMethod("UnregisterCallbacks", new[] { CallbacksType });
+                if (method != null)
+                {
+                    InvokeApi(method, new[] { callbacks });
+                    return;
+                }
+
+                method = _api.GetType().GetMethods()
+                    .FirstOrDefault(item => item.Name == "UnregisterCallbacks" && item.IsGenericMethodDefinition);
+                if (method == null)
+                    throw new MissingMethodException("UnregisterCallbacks");
+                InvokeApi(method.MakeGenericMethod(CallbacksType), new[] { callbacks });
             }
 
             public void CancelTestRun()
             {
                 var method = _api.GetType().GetMethod("CancelTestRun", Type.EmptyTypes);
                 if (method != null)
-                    method.Invoke(_api, null);
+                    InvokeApi(method, null);
+            }
+
+            private void InvokeApi(MethodInfo method, object[] args)
+            {
+                if (method == null)
+                    throw new MissingMethodException("Unity Test Framework API method not found");
+                try
+                {
+                    method.Invoke(_api, args);
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception(FormatReflectionException(ex), ex);
+                }
             }
 
             private object ParseMode(string mode)
@@ -803,20 +895,37 @@ namespace Locus
             }
         }
 
-        private class TestFrameworkDispatchProxy : DispatchProxy
+        private static object CreateTestFrameworkDispatchProxy(Type interfaceType, TestRunCallbacksProxy target)
         {
-            private TestRunCallbacksProxy _target;
+            var create = typeof(DispatchProxy).GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .FirstOrDefault(m => m.Name == "Create" && m.IsGenericMethodDefinition && m.GetParameters().Length == 0);
+            if (create == null)
+                throw new InvalidOperationException("DispatchProxy.Create<T, TProxy>() is unavailable");
 
-            public static object Create(Type interfaceType, TestRunCallbacksProxy target)
+            var proxyObject = create
+                .MakeGenericMethod(interfaceType, typeof(TestFrameworkDispatchProxy))
+                .Invoke(null, null);
+            var proxy = proxyObject as TestFrameworkDispatchProxy;
+            if (proxy == null)
+                throw new InvalidOperationException("Failed to create test framework callbacks proxy");
+            proxy._target = target;
+            return proxyObject;
+        }
+
+        public class TestFrameworkDispatchProxy : DispatchProxy
+        {
+            internal object _target;
+
+            public TestFrameworkDispatchProxy()
             {
-                var proxy = DispatchProxy.Create(interfaceType, typeof(TestFrameworkDispatchProxy)) as TestFrameworkDispatchProxy;
-                proxy._target = target;
-                return proxy;
             }
 
             protected override object Invoke(MethodInfo targetMethod, object[] args)
             {
-                return _target.Invoke(targetMethod.Name, args);
+                var target = _target as TestRunCallbacksProxy;
+                if (target == null)
+                    throw new InvalidOperationException("Test framework callback target is not initialized");
+                return target.Invoke(targetMethod.Name, args);
             }
         }
 
@@ -833,6 +942,14 @@ namespace Locus
                 default:
                     return "failed";
             }
+        }
+
+        private static string FormatReflectionException(Exception ex)
+        {
+            var target = ex as TargetInvocationException;
+            if (target != null && target.InnerException != null)
+                return target.InnerException.GetType().Name + ": " + target.InnerException.Message + "\n" + target.InnerException.StackTrace;
+            return ex.GetType().Name + ": " + ex.Message + "\n" + ex.StackTrace;
         }
     }
 }
