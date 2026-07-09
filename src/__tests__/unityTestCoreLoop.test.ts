@@ -9,6 +9,8 @@ describe("Unity Test Framework core loop wiring", () => {
     const promptSource = read("src-tauri/src/prompt.rs");
     const builtinsSource = read("src-tauri/src/tool/builtins/mod.rs");
     const agentSource = read("src-tauri/src/agent/instance/mod.rs");
+    const devAgent = JSON.parse(read("agent/dev/config.json"));
+    const runtimeDebuggerAgent = JSON.parse(read("agent/runtime_debugger/config.json"));
 
     expect(promptSource).toContain("UNITY_TEST_FIND");
     expect(promptSource).toContain("UNITY_TEST_RUN");
@@ -18,6 +20,10 @@ describe("Unity Test Framework core loop wiring", () => {
     expect(builtinsSource).toContain("unity::unity_test_run()");
     expect(agentSource).toContain('tc.name == "unity_test_run"');
     expect(agentSource).toContain("execute_unity_test_run");
+    expect(devAgent.tools).toContain("unity_test_find");
+    expect(devAgent.tools).toContain("unity_test_run");
+    expect(runtimeDebuggerAgent.tools).toContain("unity_test_find");
+    expect(runtimeDebuggerAgent.tools).toContain("unity_test_run");
   });
 
   it("keeps run results visible through the frontend override and latest snapshot command", () => {
@@ -32,10 +38,13 @@ describe("Unity Test Framework core loop wiring", () => {
 
   it("defaults test runs to confirmation because they write latest snapshot state", () => {
     const settingsSource = read("src/composables/useSettingsState.ts");
+    const configRegistrySource = read("src-tauri/src/config_registry.rs");
     const runTool = JSON.parse(read("tools/unity_test_run.json"));
 
     expect(settingsSource).toContain('name: "unity_test_run"');
     expect(settingsSource).toMatch(/name:\s*"unity_test_run"[\s\S]*defaultMode:\s*"ask"\s+as const/);
+    expect(configRegistrySource).toContain('("unity_test_find", "Find Unity Test Framework tests")');
+    expect(configRegistrySource).toContain('("unity_test_run", "Run Unity Test Framework tests")');
     expect(runTool.description).toContain("Run Unity Test Framework tests");
     expect(runTool.parameters.properties.search.description).toContain("resolve search by discovery");
   });
