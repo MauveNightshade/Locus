@@ -405,7 +405,7 @@ namespace Locus
         {
             if (!MatchesExact(info.AssemblyName, request.assemblyName))
                 return false;
-            if (!MatchesExact(info.FixtureName, request.fixtureName))
+            if (!MatchesFixture(info.FixtureName, request.fixtureName))
                 return false;
             if (!MatchesExact(info.TestName, request.testName))
                 return false;
@@ -425,6 +425,19 @@ namespace Locus
         {
             return string.IsNullOrWhiteSpace(expected)
                 || string.Equals(actual ?? "", expected.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool MatchesFixture(string actual, string expected)
+        {
+            if (string.IsNullOrWhiteSpace(expected))
+                return true;
+            string expectedTrimmed = expected.Trim();
+            string actualValue = actual ?? "";
+            if (string.Equals(actualValue, expectedTrimmed, StringComparison.OrdinalIgnoreCase))
+                return true;
+            int dot = actualValue.LastIndexOf('.');
+            string shortName = dot >= 0 ? actualValue.Substring(dot + 1) : actualValue;
+            return string.Equals(shortName, expectedTrimmed, StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool Contains(string actual, string needle)

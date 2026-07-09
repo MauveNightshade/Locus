@@ -42,13 +42,21 @@ impl Default for UnityTestMode {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct UnityTestFilter {
-    #[serde(default)]
+    #[serde(default, alias = "test_mode")]
     pub test_mode: UnityTestMode,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "assembly_name",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub assembly_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "fixture_name",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub fixture_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "test_name", skip_serializing_if = "Option::is_none")]
     pub test_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub search: Option<String>,
@@ -57,11 +65,19 @@ pub struct UnityTestFilter {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct UnityTestTarget {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "assembly_name",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub assembly_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "fixture_name",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub fixture_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "test_name", skip_serializing_if = "Option::is_none")]
     pub test_name: Option<String>,
 }
 
@@ -502,8 +518,8 @@ async fn run_phase<F>(
 where
     F: FnMut(UnityTestProgress) + Send,
 {
-    let effective_request = resolve_search_targets(project_path, request).await?;
-    if request_has_search(request) && effective_request.tests.is_empty() {
+    let effective_request = resolve_run_targets(project_path, request).await?;
+    if request_has_selector(request) && effective_request.tests.is_empty() {
         return Ok(UnityTestPhaseResult {
             run_id: run_id.to_string(),
             test_mode: request.filter.test_mode.as_bridge_str().to_string(),
@@ -589,36 +605,198 @@ where
     }
 }
 
-async fn resolve_search_targets(
+async fn resolve_run_targets(
     project_path: &str,
     request: &UnityTestRunRequest,
 ) -> Result<UnityTestRunRequest, UnityTestError> {
-    if !request_has_search(request) || !request.tests.is_empty() {
+    if !request_has_selector(request) {
         return Ok(request.clone());
     }
 
-    let discovery = find_tests(project_path, request.filter.clone()).await?;
+    let discovery_filter = if request.tests.is_empty() {
+        request.filter.clone()
+    } else {
+        UnityTestFilter {
+            test_mode: request.filter.test_mode.clone(),
+            ..Default::default()
+        }
+    };
+    let discovery = find_tests(project_path, discovery_filter).await?;
     let mut next = request.clone();
+    next.filter.assembly_name = None;
     next.filter.search = None;
     next.filter.fixture_name = None;
     next.filter.test_name = None;
-    next.tests = discovery
+    next.tests = resolve_targets_from_discovery(&discovery, request);
+    Ok(next)
+}
+
+fn resolve_targets_from_discovery(
+    discovery: &UnityTestDiscovery,
+    request: &UnityTestRunRequest,
+) -> Vec<UnityTestTarget> {
+    discovery
         .assemblies
-        .into_iter()
+        .iter()
         .flat_map(|assembly| {
-            let assembly_name = assembly.name;
-            assembly.fixtures.into_iter().flat_map(move |fixture| {
+            let assembly_name = assembly.name.clone();
+            assembly.fixtures.iter().flat_map(move |fixture| {
                 let assembly_name = assembly_name.clone();
-                let fixture_name = fixture.name;
-                fixture.tests.into_iter().map(move |test| UnityTestTarget {
-                    assembly_name: Some(assembly_name.clone()),
-                    fixture_name: Some(fixture_name.clone()),
-                    test_name: Some(test.name),
+                let fixture_name = fixture.name.clone();
+                fixture.tests.iter().filter_map(move |test| {
+                    if !filter_matches_discovered_test(
+                        &request.filter,
+                        &assembly_name,
+                        &fixture_name,
+                        test,
+                    ) {
+                        return None;
+                    }
+
+                    if !request.tests.is_empty()
+                        && !request.tests.iter().any(|target| {
+                            target_matches_discovered_test(
+                                target,
+                                &assembly_name,
+                                &fixture_name,
+                                test,
+                            )
+                        })
+                    {
+                        return None;
+                    }
+
+                    Some(UnityTestTarget {
+                        assembly_name: Some(assembly_name.clone()),
+                        fixture_name: Some(fixture_name.clone()),
+                        test_name: Some(test.name.clone()),
+                    })
                 })
             })
         })
-        .collect();
-    Ok(next)
+        .collect()
+}
+
+fn filter_matches_discovered_test(
+    filter: &UnityTestFilter,
+    assembly_name: &str,
+    fixture_name: &str,
+    test: &UnityTestMethod,
+) -> bool {
+    matches_optional_exact(&filter.assembly_name, assembly_name)
+        && matches_optional_fixture(&filter.fixture_name, fixture_name)
+        && matches_optional_test_name(&filter.test_name, fixture_name, test)
+        && matches_optional_search(&filter.search, assembly_name, fixture_name, test)
+}
+
+fn target_matches_discovered_test(
+    target: &UnityTestTarget,
+    assembly_name: &str,
+    fixture_name: &str,
+    test: &UnityTestMethod,
+) -> bool {
+    matches_optional_exact(&target.assembly_name, assembly_name)
+        && matches_optional_fixture(&target.fixture_name, fixture_name)
+        && matches_optional_test_name(&target.test_name, fixture_name, test)
+}
+
+fn matches_optional_exact(expected: &Option<String>, actual: &str) -> bool {
+    match expected
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(expected) => actual.eq_ignore_ascii_case(expected),
+        None => true,
+    }
+}
+
+fn matches_optional_fixture(expected: &Option<String>, actual: &str) -> bool {
+    match expected
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(expected) => {
+            actual.eq_ignore_ascii_case(expected)
+                || actual
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|short| short.eq_ignore_ascii_case(expected))
+        }
+        None => true,
+    }
+}
+
+fn matches_optional_test_name(
+    expected: &Option<String>,
+    fixture_name: &str,
+    test: &UnityTestMethod,
+) -> bool {
+    match expected
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(expected) => {
+            test.name.eq_ignore_ascii_case(expected)
+                || test.full_name.eq_ignore_ascii_case(expected)
+                || format!("{}.{}", fixture_name, test.name).eq_ignore_ascii_case(expected)
+        }
+        None => true,
+    }
+}
+
+fn matches_optional_search(
+    expected: &Option<String>,
+    assembly_name: &str,
+    fixture_name: &str,
+    test: &UnityTestMethod,
+) -> bool {
+    match expected
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(expected) => {
+            contains_ignore_case(assembly_name, expected)
+                || contains_ignore_case(fixture_name, expected)
+                || contains_ignore_case(&test.name, expected)
+                || contains_ignore_case(&test.full_name, expected)
+                || test
+                    .source_path
+                    .as_deref()
+                    .is_some_and(|path| contains_ignore_case(path, expected))
+        }
+        None => true,
+    }
+}
+
+fn contains_ignore_case(actual: &str, expected: &str) -> bool {
+    actual.to_lowercase().contains(&expected.to_lowercase())
+}
+
+fn request_has_selector(request: &UnityTestRunRequest) -> bool {
+    request_has_search(request)
+        || !request.tests.is_empty()
+        || request
+            .filter
+            .assembly_name
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+        || request
+            .filter
+            .fixture_name
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+        || request
+            .filter
+            .test_name
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
 }
 
 fn request_has_search(request: &UnityTestRunRequest) -> bool {
@@ -753,6 +931,7 @@ pub fn read_latest_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn all_mode_runs_editmode_before_playmode() {
@@ -788,5 +967,500 @@ mod tests {
         assert_eq!(summary.failed, 1);
         assert_eq!(summary.skipped, 1);
         assert_eq!(summary.duration, 1.75);
+    }
+
+    #[test]
+    fn unity_test_arguments_accept_tool_snake_case_fields() {
+        let request: UnityTestRunRequest = serde_json::from_value(json!({
+            "test_mode": "editmode",
+            "assembly_name": "EditMode",
+            "fixture_name": "ArchiveSessionRootTests",
+            "test_name": "Load_ReturnsFalse_WhenNoActiveArchive",
+            "tests": [{
+                "assembly_name": "EditMode",
+                "fixture_name": "SolarFood.Tests.ArchiveSessionRootTests",
+                "test_name": "Load_ReturnsFalse_WhenNoActiveArchive"
+            }]
+        }))
+        .expect("parse snake_case tool arguments");
+
+        assert_eq!(request.filter.test_mode, UnityTestMode::Editmode);
+        assert_eq!(request.filter.assembly_name.as_deref(), Some("EditMode"));
+        assert_eq!(
+            request.filter.fixture_name.as_deref(),
+            Some("ArchiveSessionRootTests")
+        );
+        assert_eq!(
+            request.filter.test_name.as_deref(),
+            Some("Load_ReturnsFalse_WhenNoActiveArchive")
+        );
+        assert_eq!(request.tests.len(), 1);
+        assert_eq!(
+            request.tests[0].fixture_name.as_deref(),
+            Some("SolarFood.Tests.ArchiveSessionRootTests")
+        );
+    }
+
+    #[test]
+    fn unity_test_arguments_accept_bridge_camel_case_fields() {
+        let request: UnityTestRunRequest = serde_json::from_value(json!({
+            "testMode": "playmode",
+            "assemblyName": "PlayMode",
+            "fixtureName": "SolarFood.Tests.BootLoaderFreshPlayTests",
+            "testName": "TryAutoResolveArchive_DoesNotLoadExistingArchive_WhenFreshPlaySkipAutoResolve"
+        }))
+        .expect("parse camelCase bridge arguments");
+
+        assert_eq!(request.filter.test_mode, UnityTestMode::Playmode);
+        assert_eq!(request.filter.assembly_name.as_deref(), Some("PlayMode"));
+        assert_eq!(
+            request.filter.fixture_name.as_deref(),
+            Some("SolarFood.Tests.BootLoaderFreshPlayTests")
+        );
+        assert_eq!(
+            request.filter.test_name.as_deref(),
+            Some("TryAutoResolveArchive_DoesNotLoadExistingArchive_WhenFreshPlaySkipAutoResolve")
+        );
+    }
+
+    #[test]
+    fn explicit_targets_match_full_fixture_and_test_name() {
+        let discovery = sample_discovery();
+        let request = UnityTestRunRequest {
+            filter: UnityTestFilter {
+                test_mode: UnityTestMode::All,
+                ..Default::default()
+            },
+            tests: vec![UnityTestTarget {
+                assembly_name: Some("EditMode".to_string()),
+                fixture_name: Some("SolarFood.Tests.ArchiveSessionRootTests".to_string()),
+                test_name: Some("Load_ReturnsFalse_WhenNoActiveArchive".to_string()),
+            }],
+        };
+
+        let targets = resolve_targets_from_discovery(&discovery, &request);
+        assert_eq!(
+            target_names(&targets),
+            vec!["SolarFood.Tests.ArchiveSessionRootTests.Load_ReturnsFalse_WhenNoActiveArchive"]
+        );
+    }
+
+    #[test]
+    fn explicit_targets_match_short_fixture_name() {
+        let discovery = sample_discovery();
+        let request = UnityTestRunRequest {
+            filter: UnityTestFilter {
+                test_mode: UnityTestMode::All,
+                ..Default::default()
+            },
+            tests: vec![UnityTestTarget {
+                assembly_name: Some("EditMode".to_string()),
+                fixture_name: Some("ArchiveSessionRootTests".to_string()),
+                test_name: Some("Load_ReturnsFalse_WhenNoActiveArchive".to_string()),
+            }],
+        };
+
+        let targets = resolve_targets_from_discovery(&discovery, &request);
+        assert_eq!(
+            target_names(&targets),
+            vec!["SolarFood.Tests.ArchiveSessionRootTests.Load_ReturnsFalse_WhenNoActiveArchive"]
+        );
+    }
+
+    #[test]
+    fn non_matching_explicit_target_stays_empty_instead_of_broadening() {
+        let discovery = sample_discovery();
+        let request = UnityTestRunRequest {
+            filter: UnityTestFilter {
+                test_mode: UnityTestMode::All,
+                ..Default::default()
+            },
+            tests: vec![UnityTestTarget {
+                assembly_name: Some("EditMode".to_string()),
+                fixture_name: Some("NonExistingFixture".to_string()),
+                test_name: None,
+            }],
+        };
+
+        let targets = resolve_targets_from_discovery(&discovery, &request);
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn filter_selectors_resolve_expected_targets_without_broadening() {
+        let cases = vec![
+            (
+                "assembly editmode",
+                UnityTestFilter {
+                    assembly_name: Some("EditMode".to_string()),
+                    ..Default::default()
+                },
+                vec![ARCHIVE_ROOT_TEST, ARCHIVE_SAVE_TEST, OTHER_TEST, CASE_TEST],
+            ),
+            (
+                "assembly playmode",
+                UnityTestFilter {
+                    assembly_name: Some("PlayMode".to_string()),
+                    ..Default::default()
+                },
+                vec![PLAYMODE_TEST],
+            ),
+            (
+                "assembly case-insensitive with whitespace",
+                UnityTestFilter {
+                    assembly_name: Some(" editmode ".to_string()),
+                    ..Default::default()
+                },
+                vec![ARCHIVE_ROOT_TEST, ARCHIVE_SAVE_TEST, OTHER_TEST, CASE_TEST],
+            ),
+            (
+                "fixture short name",
+                UnityTestFilter {
+                    fixture_name: Some("ArchiveSessionRootTests".to_string()),
+                    ..Default::default()
+                },
+                vec![ARCHIVE_ROOT_TEST, ARCHIVE_SAVE_TEST],
+            ),
+            (
+                "fixture full name",
+                UnityTestFilter {
+                    fixture_name: Some("SolarFood.Tests.ArchiveSessionRootTests".to_string()),
+                    ..Default::default()
+                },
+                vec![ARCHIVE_ROOT_TEST, ARCHIVE_SAVE_TEST],
+            ),
+            (
+                "fixture case-insensitive with whitespace",
+                UnityTestFilter {
+                    fixture_name: Some(" archivesessionroottests ".to_string()),
+                    ..Default::default()
+                },
+                vec![ARCHIVE_ROOT_TEST, ARCHIVE_SAVE_TEST],
+            ),
+            (
+                "test short name",
+                UnityTestFilter {
+                    test_name: Some("Load_ReturnsFalse_WhenNoActiveArchive".to_string()),
+                    ..Default::default()
+                },
+                vec![ARCHIVE_ROOT_TEST],
+            ),
+            (
+                "test full name",
+                UnityTestFilter {
+                    test_name: Some(ARCHIVE_ROOT_TEST.to_string()),
+                    ..Default::default()
+                },
+                vec![ARCHIVE_ROOT_TEST],
+            ),
+            (
+                "test case-insensitive with whitespace",
+                UnityTestFilter {
+                    test_name: Some(" load_returnsfalse_whennoactivearchive ".to_string()),
+                    ..Default::default()
+                },
+                vec![ARCHIVE_ROOT_TEST],
+            ),
+            (
+                "search fixture",
+                UnityTestFilter {
+                    search: Some("ArchiveSessionRoot".to_string()),
+                    ..Default::default()
+                },
+                vec![ARCHIVE_ROOT_TEST, ARCHIVE_SAVE_TEST],
+            ),
+            (
+                "search source path",
+                UnityTestFilter {
+                    search: Some("BootLoaderFreshPlayTests.cs".to_string()),
+                    ..Default::default()
+                },
+                vec![PLAYMODE_TEST],
+            ),
+            (
+                "combined assembly fixture test",
+                UnityTestFilter {
+                    assembly_name: Some("EditMode".to_string()),
+                    fixture_name: Some("ArchiveSessionRootTests".to_string()),
+                    test_name: Some("Save_WritesArchive".to_string()),
+                    ..Default::default()
+                },
+                vec![ARCHIVE_SAVE_TEST],
+            ),
+            (
+                "combined fixture search",
+                UnityTestFilter {
+                    fixture_name: Some("ArchiveSessionRootTests".to_string()),
+                    search: Some("Save".to_string()),
+                    ..Default::default()
+                },
+                vec![ARCHIVE_SAVE_TEST],
+            ),
+            (
+                "non-existing assembly",
+                UnityTestFilter {
+                    assembly_name: Some("NonExistingAssembly".to_string()),
+                    ..Default::default()
+                },
+                Vec::new(),
+            ),
+            (
+                "non-existing fixture",
+                UnityTestFilter {
+                    fixture_name: Some("NonExistingFixture".to_string()),
+                    ..Default::default()
+                },
+                Vec::new(),
+            ),
+            (
+                "non-existing test",
+                UnityTestFilter {
+                    test_name: Some("NonExistingTest".to_string()),
+                    ..Default::default()
+                },
+                Vec::new(),
+            ),
+            (
+                "non-existing combined selector",
+                UnityTestFilter {
+                    assembly_name: Some("PlayMode".to_string()),
+                    fixture_name: Some("ArchiveSessionRootTests".to_string()),
+                    ..Default::default()
+                },
+                Vec::new(),
+            ),
+        ];
+
+        let discovery = sample_discovery();
+        for (label, filter, expected) in cases {
+            let request = UnityTestRunRequest {
+                filter,
+                tests: Vec::new(),
+            };
+            let targets = resolve_targets_from_discovery(&discovery, &request);
+            assert_eq!(target_names(&targets), expected, "{label}");
+        }
+    }
+
+    #[test]
+    fn explicit_target_selectors_resolve_expected_targets_without_broadening() {
+        let cases = vec![
+            (
+                "assembly only",
+                UnityTestTarget {
+                    assembly_name: Some("PlayMode".to_string()),
+                    fixture_name: None,
+                    test_name: None,
+                },
+                vec![PLAYMODE_TEST],
+            ),
+            (
+                "fixture only short name",
+                UnityTestTarget {
+                    assembly_name: None,
+                    fixture_name: Some("ArchiveSessionRootTests".to_string()),
+                    test_name: None,
+                },
+                vec![ARCHIVE_ROOT_TEST, ARCHIVE_SAVE_TEST],
+            ),
+            (
+                "test only",
+                UnityTestTarget {
+                    assembly_name: None,
+                    fixture_name: None,
+                    test_name: Some("OtherTest".to_string()),
+                },
+                vec![OTHER_TEST],
+            ),
+            (
+                "test full name",
+                UnityTestTarget {
+                    assembly_name: None,
+                    fixture_name: None,
+                    test_name: Some(PLAYMODE_TEST.to_string()),
+                },
+                vec![PLAYMODE_TEST],
+            ),
+            (
+                "case-insensitive full target",
+                UnityTestTarget {
+                    assembly_name: Some("editmode".to_string()),
+                    fixture_name: Some("archivesessionroottests".to_string()),
+                    test_name: Some("load_returnsfalse_whennoactivearchive".to_string()),
+                },
+                vec![ARCHIVE_ROOT_TEST],
+            ),
+            (
+                "non-existing explicit target",
+                UnityTestTarget {
+                    assembly_name: Some("EditMode".to_string()),
+                    fixture_name: Some("NonExistingFixture".to_string()),
+                    test_name: None,
+                },
+                Vec::new(),
+            ),
+        ];
+
+        let discovery = sample_discovery();
+        for (label, target, expected) in cases {
+            let request = UnityTestRunRequest {
+                filter: UnityTestFilter {
+                    test_mode: UnityTestMode::All,
+                    ..Default::default()
+                },
+                tests: vec![target],
+            };
+            let targets = resolve_targets_from_discovery(&discovery, &request);
+            assert_eq!(target_names(&targets), expected, "{label}");
+        }
+    }
+
+    #[test]
+    fn explicit_targets_are_intersected_with_simple_filters() {
+        let discovery = sample_discovery();
+        let request = UnityTestRunRequest {
+            filter: UnityTestFilter {
+                assembly_name: Some("EditMode".to_string()),
+                fixture_name: Some("ArchiveSessionRootTests".to_string()),
+                ..Default::default()
+            },
+            tests: vec![
+                UnityTestTarget {
+                    assembly_name: None,
+                    fixture_name: None,
+                    test_name: Some("Load_ReturnsFalse_WhenNoActiveArchive".to_string()),
+                },
+                UnityTestTarget {
+                    assembly_name: None,
+                    fixture_name: None,
+                    test_name: Some("OtherTest".to_string()),
+                },
+            ],
+        };
+
+        let targets = resolve_targets_from_discovery(&discovery, &request);
+        assert_eq!(target_names(&targets), vec![ARCHIVE_ROOT_TEST]);
+    }
+
+    #[test]
+    fn selector_detection_covers_all_query_inputs() {
+        let mut request = UnityTestRunRequest::default();
+        assert!(!request_has_selector(&request));
+
+        request.filter.assembly_name = Some("EditMode".to_string());
+        assert!(request_has_selector(&request));
+
+        request = UnityTestRunRequest::default();
+        request.filter.fixture_name = Some("ArchiveSessionRootTests".to_string());
+        assert!(request_has_selector(&request));
+
+        request = UnityTestRunRequest::default();
+        request.filter.test_name = Some("Load_ReturnsFalse_WhenNoActiveArchive".to_string());
+        assert!(request_has_selector(&request));
+
+        request = UnityTestRunRequest::default();
+        request.filter.search = Some("Archive".to_string());
+        assert!(request_has_selector(&request));
+
+        request = UnityTestRunRequest::default();
+        request.tests.push(UnityTestTarget {
+            test_name: Some("OtherTest".to_string()),
+            ..Default::default()
+        });
+        assert!(request_has_selector(&request));
+    }
+
+    const ARCHIVE_ROOT_TEST: &str =
+        "SolarFood.Tests.ArchiveSessionRootTests.Load_ReturnsFalse_WhenNoActiveArchive";
+    const ARCHIVE_SAVE_TEST: &str = "SolarFood.Tests.ArchiveSessionRootTests.Save_WritesArchive";
+    const OTHER_TEST: &str = "SolarFood.Tests.OtherTests.OtherTest";
+    const CASE_TEST: &str = "SolarFood.Tests.MixedCaseTests.CaseSensitiveName";
+    const PLAYMODE_TEST: &str = "SolarFood.Tests.BootLoaderFreshPlayTests.TryAutoResolveArchive_DoesNotLoadExistingArchive_WhenFreshPlaySkipAutoResolve";
+
+    fn sample_discovery() -> UnityTestDiscovery {
+        UnityTestDiscovery {
+            assemblies: vec![
+                UnityTestAssembly {
+                    name: "EditMode".to_string(),
+                    test_mode: "editmode".to_string(),
+                    fixtures: vec![
+                        UnityTestFixture {
+                            name: "SolarFood.Tests.ArchiveSessionRootTests".to_string(),
+                            tests: vec![
+                                UnityTestMethod {
+                                    name: "Load_ReturnsFalse_WhenNoActiveArchive".to_string(),
+                                    full_name: ARCHIVE_ROOT_TEST.to_string(),
+                                    source_path: Some(
+                                        "Assets/Scripts/Tests/EditMode/ArchiveSessionRootTests.cs"
+                                            .to_string(),
+                                    ),
+                                    ..Default::default()
+                                },
+                                UnityTestMethod {
+                                    name: "Save_WritesArchive".to_string(),
+                                    full_name: ARCHIVE_SAVE_TEST.to_string(),
+                                    source_path: Some(
+                                        "Assets/Scripts/Tests/EditMode/ArchiveSessionRootTests.cs"
+                                            .to_string(),
+                                    ),
+                                    ..Default::default()
+                                },
+                            ],
+                        },
+                        UnityTestFixture {
+                            name: "SolarFood.Tests.OtherTests".to_string(),
+                            tests: vec![UnityTestMethod {
+                                name: "OtherTest".to_string(),
+                                full_name: OTHER_TEST.to_string(),
+                                source_path: Some(
+                                    "Assets/Scripts/Tests/EditMode/OtherTests.cs".to_string(),
+                                ),
+                                ..Default::default()
+                            }],
+                        },
+                        UnityTestFixture {
+                            name: "SolarFood.Tests.MixedCaseTests".to_string(),
+                            tests: vec![UnityTestMethod {
+                                name: "CaseSensitiveName".to_string(),
+                                full_name: CASE_TEST.to_string(),
+                                source_path: Some(
+                                    "Assets/Scripts/Tests/EditMode/MixedCaseTests.cs".to_string(),
+                                ),
+                                ..Default::default()
+                            }],
+                        },
+                    ],
+                },
+                UnityTestAssembly {
+                    name: "PlayMode".to_string(),
+                    test_mode: "playmode".to_string(),
+                    fixtures: vec![UnityTestFixture {
+                        name: "SolarFood.Tests.BootLoaderFreshPlayTests".to_string(),
+                        tests: vec![UnityTestMethod {
+                            name: "TryAutoResolveArchive_DoesNotLoadExistingArchive_WhenFreshPlaySkipAutoResolve".to_string(),
+                            full_name: PLAYMODE_TEST.to_string(),
+                            source_path: Some(
+                                "Assets/Scripts/Tests/PlayMode/BootLoaderFreshPlayTests.cs"
+                                    .to_string(),
+                            ),
+                            ..Default::default()
+                        }],
+                    }],
+                },
+            ],
+        }
+    }
+
+    fn target_names(targets: &[UnityTestTarget]) -> Vec<String> {
+        targets
+            .iter()
+            .map(|target| {
+                format!(
+                    "{}.{}",
+                    target.fixture_name.as_deref().unwrap_or(""),
+                    target.test_name.as_deref().unwrap_or("")
+                )
+            })
+            .collect()
     }
 }
