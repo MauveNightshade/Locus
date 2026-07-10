@@ -350,14 +350,9 @@ namespace Locus
             var assemblies = new List<string>();
             if (!string.IsNullOrWhiteSpace(request.assemblyName))
                 assemblies.Add(request.assemblyName.Trim());
-            if (request.tests != null)
-            {
-                foreach (var target in request.tests)
-                {
-                    if (!string.IsNullOrWhiteSpace(target.assemblyName))
-                        assemblies.Add(target.assemblyName.Trim());
-                }
-            }
+            // Explicit targets already carry exact full names. Adding their discovery assembly
+            // labels here can select no tests when an older bridge reported EditMode/PlayMode
+            // instead of the real compiled assembly name.
             if (assemblies.Count > 0)
                 TestFrameworkApi.SetMember(filter, "assemblyNames", assemblies.Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
             if (names.Count > 0)
@@ -367,6 +362,10 @@ namespace Locus
 
         private static string JoinFullName(string fixtureName, string testName)
         {
+            string fixture = (fixtureName ?? "").Trim();
+            string test = (testName ?? "").Trim();
+            if (fixture.Length > 0 && test.StartsWith(fixture + ".", StringComparison.Ordinal))
+                return test;
             var parts = new[] { fixtureName, testName }
                 .Where(part => !string.IsNullOrWhiteSpace(part))
                 .Select(part => part.Trim())
@@ -436,6 +435,26 @@ namespace Locus
             foreach (var child in childList)
             {
                 foreach (var leaf in EnumerateLeafTests(child))
+                    yield return leaf;
+            }
+        }
+
+        private static IEnumerable<object> EnumerateLeafResults(object root)
+        {
+            if (root == null)
+                yield break;
+
+            var children = TestFrameworkApi.GetMember(root, "Children") as System.Collections.IEnumerable;
+            var childList = children != null ? children.Cast<object>().ToArray() : new object[0];
+            if (childList.Length == 0)
+            {
+                yield return root;
+                yield break;
+            }
+
+            foreach (var child in childList)
+            {
+                foreach (var leaf in EnumerateLeafResults(child))
                     yield return leaf;
             }
         }
@@ -572,18 +591,30 @@ namespace Locus
 
             private void RunFinished(object result)
             {
+                var finalResults = EnumerateLeafResults(result)
+                    .Select(ResultNode)
+                    .Where(node => node != null)
+                    .ToList();
+                _results.Clear();
+                _results.AddRange(finalResults);
+                _completed = _results.Count;
+                _failed = _results.Count(item => item.outcome == "failed");
+                _skipped = _results.Count(item => item.outcome == "skipped");
                 var duration = _results.Sum(item => item.duration);
+                bool noTestsExecuted = _results.Count == 0;
                 var response = new TestRunPhaseResponse
                 {
                     runId = _request.runId ?? "",
                     testMode = _mode,
-                    status = _failed > 0 ? "failed" : "passed",
+                    status = noTestsExecuted ? "runtime_error" : (_failed > 0 ? "failed" : "passed"),
                     total = _results.Count,
                     passed = _results.Count - _failed - _skipped,
                     failed = _failed,
                     skipped = _skipped,
                     duration = duration,
                     results = _results.ToArray(),
+                    errorCode = noTestsExecuted ? "no_tests_executed" : "",
+                    errorMessage = noTestsExecuted ? "Unity selected no leaf tests for the requested scope" : "",
                 };
                 _completion.TrySetResult(response);
                 try { _api.UnregisterCallbacks(CallbackObject); } catch { }
@@ -608,7 +639,14 @@ namespace Locus
                 if (result == null || TestFrameworkApi.GetBool(result, "HasChildren"))
                     return null;
                 var fullName = TestFrameworkApi.GetString(result, "FullName");
-                var info = TestInfo.FromFullName(fullName, _mode);
+                var test = TestFrameworkApi.GetMember(result, "Test");
+                if (TestFrameworkApi.GetBool(test, "IsSuite"))
+                    return null;
+                var info = test != null
+                    ? TestInfo.FromAdaptor(test, _mode)
+                    : TestInfo.FromFullName(fullName, _mode);
+                if (string.IsNullOrEmpty(info.FullName))
+                    info.FullName = fullName;
                 return new TestResultNode
                 {
                     assemblyName = info.AssemblyName,
@@ -639,6 +677,7 @@ namespace Locus
             {
                 var fullName = TestFrameworkApi.GetString(test, "FullName");
                 var info = FromFullName(fullName, mode);
+                info.AssemblyName = ResolveAssemblyName(test, info.AssemblyName);
                 var method = TestFrameworkApi.GetMember(test, "Method") as MethodInfo;
                 if (method != null)
                 {
@@ -650,6 +689,22 @@ namespace Locus
                     ResolveSource(info, method);
                 }
                 return info;
+            }
+
+            private static string ResolveAssemblyName(object test, string fallback)
+            {
+                var current = test;
+                while (current != null)
+                {
+                    if (TestFrameworkApi.GetBool(current, "IsTestAssembly"))
+                    {
+                        var name = TestFrameworkApi.GetString(current, "Name");
+                        if (!string.IsNullOrWhiteSpace(name))
+                            return Path.GetFileNameWithoutExtension(name.Trim());
+                    }
+                    current = TestFrameworkApi.GetMember(current, "Parent");
+                }
+                return fallback;
             }
 
             public static TestInfo FromFullName(string fullName, string mode)

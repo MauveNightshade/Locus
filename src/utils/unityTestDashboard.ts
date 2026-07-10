@@ -31,6 +31,13 @@ export interface UnityTestAssemblyView {
   fixtures: UnityTestFixtureView[];
 }
 
+export interface UnityTestModeView {
+  key: string;
+  name: "EditMode" | "PlayMode";
+  testMode: Exclude<UnityTestMode, "all">;
+  assemblies: UnityTestAssemblyView[];
+}
+
 export type SelectionState = "none" | "some" | "all";
 
 function normalizedMode(mode: string): Exclude<UnityTestMode, "all"> {
@@ -54,6 +61,10 @@ export function unityTestKey(
 
 export function unityTestAssemblyKey(assembly: Pick<UnityTestAssembly, "name" | "testMode">): string {
   return JSON.stringify([normalizedMode(assembly.testMode), assembly.name]);
+}
+
+export function unityTestModeKey(testMode: string): string {
+  return JSON.stringify([normalizedMode(testMode)]);
 }
 
 export function unityTestFixtureKey(
@@ -96,18 +107,45 @@ function resultKey(testMode: string, result: UnityTestResult): string | null {
   );
 }
 
-export function mapUnityTestResults(snapshot: UnityTestSnapshot | null): Map<string, UnityTestResult> {
+function matchedDiscoveryKey(
+  testMode: string,
+  result: UnityTestResult,
+  testIndex?: ReadonlyMap<string, UnityTestLeaf>,
+): string | null {
+  const normalizedRequestedMode = testMode.trim().toLowerCase();
+  const hasSpecificMode = normalizedRequestedMode === "editmode" || normalizedRequestedMode === "playmode";
+  const direct = hasSpecificMode ? resultKey(testMode, result) : null;
+  if (!testIndex) return direct;
+  if (direct && testIndex.has(direct)) return direct;
+
+  const normalizedFixture = result.fixtureName.trim().toLocaleLowerCase();
+  const normalizedFullName = result.fullName.trim().toLocaleLowerCase();
+  const normalizedTestName = result.testName.trim().toLocaleLowerCase();
+  const candidates = [...testIndex.values()].filter((leaf) => {
+    if (hasSpecificMode && leaf.testMode !== normalizedMode(testMode)) return false;
+    if (normalizedFixture && leaf.fixtureName.toLocaleLowerCase() !== normalizedFixture) return false;
+    if (normalizedFullName) {
+      return leaf.test.fullName.trim().toLocaleLowerCase() === normalizedFullName;
+    }
+    return Boolean(normalizedTestName)
+      && leaf.test.name.trim().toLocaleLowerCase() === normalizedTestName;
+  });
+  return candidates.length === 1 ? candidates[0].key : null;
+}
+
+export function mapUnityTestResults(
+  snapshot: UnityTestSnapshot | null,
+  testIndex?: ReadonlyMap<string, UnityTestLeaf>,
+): Map<string, UnityTestResult> {
   const results = new Map<string, UnityTestResult>();
   if (!snapshot) return results;
+  for (const result of snapshot.results) {
+    const key = matchedDiscoveryKey(result.testMode ?? snapshot.requestedScope.testMode, result, testIndex);
+    if (key) results.set(key, result);
+  }
   for (const phase of snapshot.phaseSummaries) {
     for (const result of phase.results) {
-      const key = resultKey(phase.testMode, result);
-      if (key) results.set(key, result);
-    }
-  }
-  if (snapshot.phaseSummaries.length === 0 && snapshot.requestedScope.testMode !== "all") {
-    for (const result of snapshot.results) {
-      const key = resultKey(snapshot.requestedScope.testMode, result);
+      const key = matchedDiscoveryKey(phase.testMode, result, testIndex);
       if (key) results.set(key, result);
     }
   }
@@ -176,6 +214,21 @@ export function filterUnityTestTree(
   return tree;
 }
 
+export function groupUnityTestTreeByMode(
+  assemblies: readonly UnityTestAssemblyView[],
+): UnityTestModeView[] {
+  return (["editmode", "playmode"] as const).flatMap((testMode) => {
+    const matching = assemblies.filter((assembly) => assembly.testMode === testMode);
+    if (!matching.length) return [];
+    return [{
+      key: unityTestModeKey(testMode),
+      name: testMode === "editmode" ? "EditMode" : "PlayMode",
+      testMode,
+      assemblies: matching,
+    }];
+  });
+}
+
 export function selectedState(keys: readonly string[], checked: ReadonlySet<string>): SelectionState {
   const selected = keys.reduce((count, key) => count + (checked.has(key) ? 1 : 0), 0);
   if (selected === 0) return "none";
@@ -190,7 +243,7 @@ export function buildUnityTestRunRequest(leaves: readonly UnityTestLeaf[]): Unit
     tests: leaves.map((leaf) => ({
       assemblyName: leaf.assemblyName,
       fixtureName: leaf.fixtureName,
-      testName: leaf.test.name,
+      testName: leaf.test.fullName || leaf.test.name,
     })),
   };
 }

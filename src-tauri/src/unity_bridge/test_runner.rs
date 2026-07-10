@@ -179,6 +179,8 @@ pub struct UnityTestPhaseResult {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct UnityTestResult {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub test_mode: String,
     #[serde(default)]
     pub assembly_name: String,
     #[serde(default)]
@@ -334,11 +336,8 @@ where
             snapshot
         }
         Err(error) => {
-            let phase_summaries = error.partial_phases.clone();
-            let results = phase_summaries
-                .iter()
-                .flat_map(|phase| phase.results.clone())
-                .collect();
+            let mut phase_summaries = error.partial_phases.clone();
+            let results = flatten_phase_results(&mut phase_summaries);
             let total_summary = summarize(&phase_summaries);
             UnityTestSnapshot {
                 run_id,
@@ -365,6 +364,10 @@ where
         }
     };
 
+    let mut snapshot = snapshot;
+    if let Ok(Some(previous)) = read_latest_snapshot(project_path) {
+        merge_snapshot_results(&previous, &mut snapshot);
+    }
     let _ = write_latest_snapshot(project_path, &snapshot);
     let _ = exit_play_mode(project_path).await;
     if let Some(domain_reload) = restore_play_mode_domain_reload {
@@ -406,7 +409,10 @@ where
         prepare_for_phase(project_path, &mode).await?;
         request.filter.test_mode = mode.clone();
         match run_phase(project_path, &run_id, &request, cancel_rx, on_progress).await {
-            Ok(phase) => phases.push(phase),
+            Ok(mut phase) => {
+                tag_phase_results(&mut phase);
+                phases.push(phase);
+            }
             Err(mut error) => {
                 phases.append(&mut error.partial_phases);
                 error.partial_phases = phases;
@@ -415,10 +421,7 @@ where
         }
     }
 
-    let results = phases
-        .iter()
-        .flat_map(|phase| phase.results.clone())
-        .collect::<Vec<_>>();
+    let results = flatten_phase_results(&mut phases);
     let total_summary = summarize(&phases);
     let terminal_status = if total_summary.failed > 0 {
         "completed_failed"
@@ -702,7 +705,11 @@ fn resolve_targets_from_discovery(
                     Some(UnityTestTarget {
                         assembly_name: Some(assembly_name.clone()),
                         fixture_name: Some(fixture_name.clone()),
-                        test_name: Some(test.name.clone()),
+                        test_name: Some(if test.full_name.trim().is_empty() {
+                            test.name.clone()
+                        } else {
+                            test.full_name.clone()
+                        }),
                     })
                 })
             })
@@ -884,6 +891,84 @@ fn summarize(phases: &[UnityTestPhaseResult]) -> UnityTestSummary {
         })
 }
 
+fn tag_phase_results(phase: &mut UnityTestPhaseResult) {
+    for result in &mut phase.results {
+        if result.test_mode.trim().is_empty() {
+            result.test_mode = phase.test_mode.clone();
+        }
+    }
+}
+
+fn flatten_phase_results(phases: &mut [UnityTestPhaseResult]) -> Vec<UnityTestResult> {
+    for phase in phases.iter_mut() {
+        tag_phase_results(phase);
+    }
+    phases
+        .iter()
+        .flat_map(|phase| phase.results.clone())
+        .collect()
+}
+
+fn result_identity(result: &UnityTestResult) -> String {
+    let name = if result.full_name.trim().is_empty() {
+        result.test_name.trim()
+    } else {
+        result.full_name.trim()
+    };
+    format!(
+        "{}\u{1f}{}\u{1f}{}\u{1f}{}",
+        result.test_mode.trim().to_lowercase(),
+        result.assembly_name.trim().to_lowercase(),
+        result.fixture_name.trim().to_lowercase(),
+        name.to_lowercase(),
+    )
+}
+
+fn snapshot_results_with_modes(snapshot: &UnityTestSnapshot) -> Vec<UnityTestResult> {
+    snapshot
+        .results
+        .iter()
+        .cloned()
+        .map(|mut result| {
+            if result.test_mode.trim().is_empty() {
+                if let Some(phase) = snapshot.phase_summaries.iter().find(|phase| {
+                    phase.results.iter().any(|candidate| {
+                        candidate
+                            .assembly_name
+                            .eq_ignore_ascii_case(&result.assembly_name)
+                            && candidate
+                                .fixture_name
+                                .eq_ignore_ascii_case(&result.fixture_name)
+                            && candidate.full_name.eq_ignore_ascii_case(&result.full_name)
+                            && candidate.test_name.eq_ignore_ascii_case(&result.test_name)
+                    })
+                }) {
+                    result.test_mode = phase.test_mode.clone();
+                } else if snapshot.requested_scope.filter.test_mode != UnityTestMode::All {
+                    result.test_mode = snapshot
+                        .requested_scope
+                        .filter
+                        .test_mode
+                        .as_bridge_str()
+                        .to_string();
+                }
+            }
+            result
+        })
+        .collect()
+}
+
+fn merge_snapshot_results(previous: &UnityTestSnapshot, current: &mut UnityTestSnapshot) {
+    let mut merged = std::collections::BTreeMap::new();
+    for result in snapshot_results_with_modes(previous) {
+        merged.insert(result_identity(&result), result);
+    }
+    for result in snapshot_results_with_modes(current) {
+        merged.insert(result_identity(&result), result);
+    }
+    current.results = merged.into_values().collect();
+}
+
 fn ok_message(response: PipeResponse) -> Result<String, UnityTestError> {
     if response.ok {
         return Ok(response.message.unwrap_or_default());
@@ -1002,6 +1087,77 @@ mod tests {
         assert_eq!(summary.failed, 1);
         assert_eq!(summary.skipped, 1);
         assert_eq!(summary.duration, 1.75);
+    }
+
+    #[test]
+    fn incremental_snapshot_merge_replaces_only_results_from_the_current_run() {
+        let previous = test_snapshot(vec![
+            test_result("editmode", "Game.Tests.A", "failed"),
+            test_result("editmode", "Game.Tests.B", "passed"),
+            test_result("playmode", "Game.Tests.A", "passed"),
+        ]);
+        let mut current = test_snapshot(vec![test_result("editmode", "Game.Tests.A", "passed")]);
+
+        merge_snapshot_results(&previous, &mut current);
+
+        assert_eq!(current.results.len(), 3);
+        assert_eq!(
+            current
+                .results
+                .iter()
+                .find(|result| result.test_mode == "editmode" && result.full_name == "Game.Tests.A")
+                .map(|result| result.outcome.as_str()),
+            Some("passed")
+        );
+        assert!(current.results.iter().any(|result| {
+            result.test_mode == "editmode"
+                && result.full_name == "Game.Tests.B"
+                && result.outcome == "passed"
+        }));
+        assert!(current.results.iter().any(|result| {
+            result.test_mode == "playmode"
+                && result.full_name == "Game.Tests.A"
+                && result.outcome == "passed"
+        }));
+    }
+
+    fn test_result(test_mode: &str, full_name: &str, outcome: &str) -> UnityTestResult {
+        let fixture_name = full_name
+            .rsplit_once('.')
+            .map(|(fixture, _)| fixture)
+            .unwrap_or("");
+        UnityTestResult {
+            test_mode: test_mode.to_string(),
+            assembly_name: format!("Game.{test_mode}.Tests"),
+            fixture_name: fixture_name.to_string(),
+            test_name: full_name
+                .rsplit('.')
+                .next()
+                .unwrap_or(full_name)
+                .to_string(),
+            full_name: full_name.to_string(),
+            outcome: outcome.to_string(),
+            ..Default::default()
+        }
+    }
+
+    fn test_snapshot(results: Vec<UnityTestResult>) -> UnityTestSnapshot {
+        UnityTestSnapshot {
+            run_id: "run".to_string(),
+            started_at: Utc::now(),
+            finished_at: Utc::now(),
+            terminal_status: "completed".to_string(),
+            preparation: UnityTestPreparation {
+                method: "none".to_string(),
+                status: "ok".to_string(),
+                message: None,
+            },
+            requested_scope: UnityTestRunRequest::default(),
+            phase_summaries: Vec::new(),
+            total_summary: UnityTestSummary::default(),
+            results,
+            error: None,
+        }
     }
 
     #[test]
@@ -1513,11 +1669,13 @@ mod tests {
         targets
             .iter()
             .map(|target| {
-                format!(
-                    "{}.{}",
-                    target.fixture_name.as_deref().unwrap_or(""),
-                    target.test_name.as_deref().unwrap_or("")
-                )
+                let fixture = target.fixture_name.as_deref().unwrap_or("");
+                let test = target.test_name.as_deref().unwrap_or("");
+                if test.starts_with(&format!("{fixture}.")) {
+                    test.to_string()
+                } else {
+                    format!("{fixture}.{test}")
+                }
             })
             .collect()
     }

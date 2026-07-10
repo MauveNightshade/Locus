@@ -4,6 +4,7 @@ import type { UnityTestDiscovery, UnityTestSnapshot } from "../types";
 import {
   buildUnityTestRunRequest,
   filterUnityTestTree,
+  groupUnityTestTreeByMode,
   indexUnityTestDiscovery,
   mapUnityTestResults,
   selectedState,
@@ -81,12 +82,64 @@ describe("Unity test dashboard projections", () => {
     expect(index.size).toBe(3);
   });
 
+  it("keeps test modes as stable top-level nodes above real assemblies", () => {
+    const modes = groupUnityTestTreeByMode(filterUnityTestTree(discovery, "", "all", "all", new Map()));
+
+    expect(modes.map((mode) => mode.name)).toEqual(["EditMode", "PlayMode"]);
+    expect(modes[0].assemblies.map((assembly) => assembly.name)).toEqual(["Game.EditMode.Tests"]);
+    expect(modes[1].assemblies.map((assembly) => assembly.name)).toEqual(["Game.PlayMode.Tests"]);
+  });
+
   it("maps results through phase mode and combines filters with AND", () => {
-    const results = mapUnityTestResults(snapshot());
+    const results = mapUnityTestResults(snapshot(), indexUnityTestDiscovery(discovery));
     const failedEdit = filterUnityTestTree(discovery, "Inventory", "editmode", "failed", results);
     expect(failedEdit).toHaveLength(1);
     expect(failedEdit[0].fixtures[0].tests.map((leaf) => leaf.test.name)).toEqual(["AddsItem(1)"]);
     expect(filterUnityTestTree(discovery, "PlayMode", "editmode", "failed", results)).toEqual([]);
+  });
+
+  it("safely maps legacy results whose assembly is only the mode label", () => {
+    const legacy = snapshot();
+    legacy.phaseSummaries[0].results[0].assemblyName = "EditMode";
+    legacy.results[0].assemblyName = "EditMode";
+    const index = indexUnityTestDiscovery(discovery);
+    const results = mapUnityTestResults(legacy, index);
+
+    expect(results.size).toBe(1);
+    expect(results.get([...index.keys()][0])?.outcome).toBe("failed");
+  });
+
+  it("does not treat Unity's empty root suite as a completed test", () => {
+    const emptyRoot = snapshot();
+    const rootResult = emptyRoot.phaseSummaries[0].results[0];
+    rootResult.assemblyName = "EditMode";
+    rootResult.fixtureName = "";
+    rootResult.testName = "a_bite_of_the_solar_system";
+    rootResult.fullName = "a_bite_of_the_solar_system";
+    rootResult.outcome = "passed";
+    emptyRoot.results = [rootResult];
+
+    expect(mapUnityTestResults(emptyRoot, indexUnityTestDiscovery(discovery))).toEqual(new Map());
+  });
+
+  it("maps cumulative results while the phase summary contains only the current run", () => {
+    const cumulative = snapshot();
+    cumulative.results.push({
+      testMode: "editmode",
+      assemblyName: "Game.EditMode.Tests",
+      fixtureName: "Game.Tests.InventoryTests",
+      testName: "AddsItem(2)",
+      fullName: "Game.Tests.InventoryTests.AddsItem(2)",
+      outcome: "passed",
+      duration: 0.1,
+      message: "",
+      stackTrace: "",
+    });
+    const results = mapUnityTestResults(cumulative, indexUnityTestDiscovery(discovery));
+
+    expect(results.size).toBe(2);
+    expect([...results.values()].map((result) => result.outcome).sort()).toEqual(["failed", "passed"]);
+    expect(cumulative.phaseSummaries[0].results).toHaveLength(1);
   });
 
   it("keeps checked state independent from visible filtering", () => {
@@ -102,6 +155,7 @@ describe("Unity test dashboard projections", () => {
     const editRequest = buildUnityTestRunRequest(leaves.filter((leaf) => leaf.testMode === "editmode"));
     expect(editRequest.testMode).toBe("editmode");
     expect(editRequest.tests).toHaveLength(2);
+    expect(editRequest.tests?.[0].testName).toBe("Game.Tests.InventoryTests.AddsItem(1)");
     expect(buildUnityTestRunRequest(leaves).testMode).toBe("all");
   });
 });
@@ -127,5 +181,24 @@ describe("Unity test dashboard registration", () => {
     expect(app).toContain('id: "tests"');
     expect(en).toContain('"app.tab.tests": "Tests"');
     expect(zh).toContain('"app.tab.tests": "测试"');
+  });
+
+  it("extracts authoritative leaf results and real Unity assembly names", () => {
+    const bridge = readFileSync("locus_unity/Editor/LocusBridge.TestRunner.cs", "utf8");
+    expect(bridge).toContain("EnumerateLeafResults(result)");
+    expect(bridge).toContain("ResolveAssemblyName(test, info.AssemblyName)");
+    expect(bridge).toContain('errorCode = noTestsExecuted ? "no_tests_executed" : ""');
+  });
+
+  it("localizes terminal states and exposes a resizable polished result layout", () => {
+    const component = readFileSync("src/components/UnityTestDashboardView.vue", "utf8");
+    const zh = readFileSync("src/language/zh.json", "utf8");
+    expect(component).toContain("terminalStatusLabel");
+    expect(component).toContain('class="pane-resize-handle"');
+    expect(component).toContain('class="running-card"');
+    expect(component).toContain('class="result-item-header"');
+    expect(component).toContain(".summary-grid .passed strong { color:");
+    expect(component).toContain(".outcome-pill { flex: none;");
+    expect(zh).toContain('"unityTest.terminal.completedFailed": "运行完成，有测试失败"');
   });
 });

@@ -2752,6 +2752,7 @@ export interface UnityTestSummary {
 }
 
 export interface UnityTestResult {
+  testMode?: string;
   assemblyName: string;
   fixtureName: string;
   testName: string;
