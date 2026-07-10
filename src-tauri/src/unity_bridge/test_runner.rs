@@ -206,6 +206,8 @@ pub struct UnityTestResult {
 pub struct UnityTestError {
     pub code: String,
     pub message: String,
+    #[serde(skip)]
+    partial_phases: Vec<UnityTestPhaseResult>,
 }
 
 impl UnityTestError {
@@ -213,7 +215,13 @@ impl UnityTestError {
         Self {
             code: code.into(),
             message: message.into(),
+            partial_phases: Vec::new(),
         }
+    }
+
+    fn with_partial_phase(mut self, phase: UnityTestPhaseResult) -> Self {
+        self.partial_phases.push(phase);
+        self
     }
 }
 
@@ -325,28 +333,36 @@ where
             snapshot.finished_at = finished_at;
             snapshot
         }
-        Err(error) => UnityTestSnapshot {
-            run_id,
-            started_at,
-            finished_at,
-            terminal_status: if error.code == "cancelled" {
-                "cancelled".to_string()
-            } else if error.code == "compile_failed" {
-                "prepare_error".to_string()
-            } else {
-                "runtime_error".to_string()
-            },
-            preparation: UnityTestPreparation {
-                method: "unknown".to_string(),
-                status: "error".to_string(),
-                message: Some(error.message.clone()),
-            },
-            requested_scope,
-            phase_summaries: Vec::new(),
-            total_summary: UnityTestSummary::default(),
-            results: Vec::new(),
-            error: Some(error),
-        },
+        Err(error) => {
+            let phase_summaries = error.partial_phases.clone();
+            let results = phase_summaries
+                .iter()
+                .flat_map(|phase| phase.results.clone())
+                .collect();
+            let total_summary = summarize(&phase_summaries);
+            UnityTestSnapshot {
+                run_id,
+                started_at,
+                finished_at,
+                terminal_status: if error.code == "cancelled" {
+                    "cancelled".to_string()
+                } else if error.code == "compile_failed" {
+                    "prepare_error".to_string()
+                } else {
+                    "runtime_error".to_string()
+                },
+                preparation: UnityTestPreparation {
+                    method: "unknown".to_string(),
+                    status: "error".to_string(),
+                    message: Some(error.message.clone()),
+                },
+                requested_scope,
+                phase_summaries,
+                total_summary,
+                results,
+                error: Some(error),
+            }
+        }
     };
 
     let _ = write_latest_snapshot(project_path, &snapshot);
@@ -389,8 +405,14 @@ where
     for mode in modes {
         prepare_for_phase(project_path, &mode).await?;
         request.filter.test_mode = mode.clone();
-        let phase = run_phase(project_path, &run_id, &request, cancel_rx, on_progress).await?;
-        phases.push(phase);
+        match run_phase(project_path, &run_id, &request, cancel_rx, on_progress).await {
+            Ok(phase) => phases.push(phase),
+            Err(mut error) => {
+                phases.append(&mut error.partial_phases);
+                error.partial_phases = phases;
+                return Err(error);
+            }
+        }
     }
 
     let results = phases
@@ -561,30 +583,7 @@ where
     loop {
         tokio::select! {
             response = &mut send => {
-                let response = response.map_err(map_transport_error)?;
-                let message = ok_message(response)?;
-                let phase_result = serde_json::from_str::<UnityTestPhaseResult>(&message).map_err(|error| {
-                    UnityTestError::new("unknown", format!("Invalid Unity test phase response: {error}"))
-                })?;
-                if !matches!(phase_result.status.as_str(), "passed" | "failed") {
-                    let code = phase_result.error_code.as_deref().unwrap_or("").trim();
-                    let code = if code.is_empty() {
-                        "unknown"
-                    } else {
-                        code
-                    };
-                    let error_message = phase_result.error_message.as_deref().unwrap_or("").trim();
-                    let message = if error_message.is_empty() {
-                        format!(
-                            "Unity test phase '{}' ended with status '{}'",
-                            phase_result.test_mode, phase_result.status
-                        )
-                    } else {
-                        error_message.to_string()
-                    };
-                    return Err(UnityTestError::new(code, message));
-                }
-                return Ok(phase_result);
+                return parse_phase_response(response.map_err(map_transport_error)?);
             }
             _ = interval.tick() => {
                 if started.elapsed() > Duration::from_millis(300) {
@@ -598,11 +597,45 @@ where
             changed = cancel_rx.changed() => {
                 if changed.is_err() || *cancel_rx.borrow() {
                     let _ = cancel_tests(project_path).await;
-                    return Err(UnityTestError::new("cancelled", "Unity test run cancelled"));
+                    let partial = tokio::time::timeout(Duration::from_secs(5), &mut send)
+                        .await
+                        .ok()
+                        .and_then(Result::ok)
+                        .and_then(|response| parse_phase_response(response).ok());
+                    let error = UnityTestError::new("cancelled", "Unity test run cancelled");
+                    return Err(match partial {
+                        Some(phase) => error.with_partial_phase(phase),
+                        None => error,
+                    });
                 }
             }
         }
     }
+}
+
+fn parse_phase_response(response: PipeResponse) -> Result<UnityTestPhaseResult, UnityTestError> {
+    let message = ok_message(response)?;
+    let phase_result = serde_json::from_str::<UnityTestPhaseResult>(&message).map_err(|error| {
+        UnityTestError::new(
+            "unknown",
+            format!("Invalid Unity test phase response: {error}"),
+        )
+    })?;
+    if matches!(phase_result.status.as_str(), "passed" | "failed") {
+        return Ok(phase_result);
+    }
+    let code = phase_result.error_code.as_deref().unwrap_or("").trim();
+    let code = if code.is_empty() { "unknown" } else { code };
+    let error_message = phase_result.error_message.as_deref().unwrap_or("").trim();
+    let message = if error_message.is_empty() {
+        format!(
+            "Unity test phase '{}' ended with status '{}'",
+            phase_result.test_mode, phase_result.status
+        )
+    } else {
+        error_message.to_string()
+    };
+    Err(UnityTestError::new(code, message))
 }
 
 async fn resolve_run_targets(
@@ -808,7 +841,9 @@ fn request_has_search(request: &UnityTestRunRequest) -> bool {
         .is_some_and(|value| !value.is_empty())
 }
 
-async fn query_progress(project_path: &str) -> Result<Option<UnityTestProgress>, UnityTestError> {
+pub async fn query_progress(
+    project_path: &str,
+) -> Result<Option<UnityTestProgress>, UnityTestError> {
     let response = transport::send_message_if_writer_free(
         project_path,
         "test_run_progress",
@@ -858,7 +893,7 @@ fn ok_message(response: PipeResponse) -> Result<String, UnityTestError> {
         .unwrap_or_else(|| "Unity test request failed".to_string());
     let code = match message.as_str() {
         "busy" => "busy",
-        "test_framework_missing" => "test_framework_missing",
+        _ if message.starts_with("test_framework_missing") => "test_framework_missing",
         _ if message.contains("pipe") || message.contains("disconnected") => "unity_disconnected",
         _ => "unknown",
     };
@@ -967,6 +1002,29 @@ mod tests {
         assert_eq!(summary.failed, 1);
         assert_eq!(summary.skipped, 1);
         assert_eq!(summary.duration, 1.75);
+    }
+
+    #[test]
+    fn cancelled_errors_carry_partial_phases_without_changing_wire_error_shape() {
+        let error = UnityTestError::new("cancelled", "cancelled").with_partial_phase(
+            UnityTestPhaseResult {
+                test_mode: "editmode".to_string(),
+                total: 2,
+                passed: 1,
+                failed: 1,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(error.partial_phases.len(), 1);
+        assert_eq!(summarize(&error.partial_phases).total, 2);
+        assert_eq!(
+            serde_json::to_value(&error).unwrap(),
+            json!({
+                "code": "cancelled",
+                "message": "cancelled"
+            })
+        );
     }
 
     #[test]

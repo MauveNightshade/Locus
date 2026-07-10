@@ -1525,6 +1525,9 @@ namespace Locus
                     case "test_run_progress":
                         return HandleTestRunProgress(reqId);
 
+                    case "open_test_source":
+                        return await HandleOpenTestSource(reqId, msg.message).ConfigureAwait(false);
+
                     case "request_recompile":
                     {
                         // Hot-reload sessions write/delete files without telling

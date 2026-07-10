@@ -25,6 +25,8 @@ export interface DisplaySettings {
   showCollabTab: boolean;
   /** Show Asset tab in the top navigation */
   showAssetTab: boolean;
+  /** Show Tests tab in the top navigation */
+  showTestsTab: boolean;
   /** Show Views tab in the top navigation */
   showViewsTab: boolean;
   /** Show Plugins tab in the top navigation */
@@ -110,6 +112,7 @@ const defaults: DisplaySettings = {
   showKnowledgeTab: true,
   showCollabTab: true,
   showAssetTab: true,
+  showTestsTab: true,
   showViewsTab: true,
   showPluginsTab: true,
   showAgentTab: true,

@@ -117,6 +117,20 @@ namespace Locus
             public int revision;
         }
 
+        [Serializable]
+        private sealed class TestSourceOpenRequest
+        {
+            public string path;
+            public int line;
+        }
+
+        [Serializable]
+        private sealed class TestSourceOpenResponse
+        {
+            public bool opened;
+            public bool positioned;
+        }
+
         private static bool HasUnityTestFramework()
         {
             return TestFrameworkApi.IsAvailable();
@@ -234,6 +248,31 @@ namespace Locus
         {
             lock (_testRunnerLock)
                 return OkResponse(requestId, JsonUtility.ToJson(_testRunProgress));
+        }
+
+        private static async Task<PipeEnvelope> HandleOpenTestSource(string requestId, string json)
+        {
+            var request = JsonUtility.FromJson<TestSourceOpenRequest>(json ?? "{}") ?? new TestSourceOpenRequest();
+            string assetPath = (request.path ?? "").Replace('\\', '/').TrimStart('/');
+            if (!assetPath.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase)
+                && !assetPath.StartsWith("Packages/", StringComparison.OrdinalIgnoreCase))
+                return ErrorResponse(requestId, "source_outside_workspace");
+
+            return await LocusAsync.RunOnMainThreadAsync(delegate
+            {
+                var asset = AssetDatabase.LoadMainAssetAtPath(assetPath);
+                if (asset == null)
+                    return ErrorResponse(requestId, "source_not_found");
+                bool positioned = request.line > 0;
+                bool opened = positioned
+                    ? AssetDatabase.OpenAsset(asset, Math.Max(1, request.line))
+                    : AssetDatabase.OpenAsset(asset);
+                return OkResponse(requestId, JsonUtility.ToJson(new TestSourceOpenResponse
+                {
+                    opened = opened,
+                    positioned = opened && positioned,
+                }));
+            }, ExecuteTimeoutMs).ConfigureAwait(false);
         }
 
         private static string[] RequestedModes(string raw)
