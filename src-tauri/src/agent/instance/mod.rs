@@ -12899,18 +12899,40 @@ impl AgentInstance {
             None,
             "preparing",
         );
+        crate::commands::emit_unity_test_progress(
+            app_handle,
+            &self.working_dir,
+            "agent",
+            crate::unity_bridge::test_runner::UnityTestProgress {
+                active: true,
+                run_id: run_id.to_string(),
+                phase: "preparing".to_string(),
+                current_test: String::new(),
+                completed: 0,
+                total: 0,
+                failed: 0,
+                revision: 0,
+            },
+        );
 
         let progress_handle = app_handle.clone();
         let progress_run_id = run_id.to_string();
         let progress_session_id = self.session_id.clone();
         let progress_tool_call_id = tool_call_id.to_string();
+        let progress_working_dir = self.working_dir.clone();
         let cancel_rx = self.cancel_waiter();
 
-        match crate::unity_bridge::test_runner::run_tests(
+        let test_result = crate::unity_bridge::test_runner::run_tests(
             &self.working_dir,
             request,
             cancel_rx,
             move |progress| {
+                crate::commands::emit_unity_test_progress(
+                    &progress_handle,
+                    &progress_working_dir,
+                    "agent",
+                    progress.clone(),
+                );
                 let info = if progress.current_test.trim().is_empty() {
                     format!(
                         "{}/{} complete · {} failed",
@@ -12945,8 +12967,45 @@ impl AgentInstance {
                 );
             },
         )
-        .await
-        {
+        .await;
+
+        match &test_result {
+            Ok(snapshot) => crate::commands::emit_unity_test_snapshot_changed(
+                app_handle,
+                &self.working_dir,
+                "agent",
+                snapshot,
+            ),
+            Err(error) if error.code != "busy" => {
+                if let Ok(Some(snapshot)) =
+                    crate::unity_bridge::test_runner::read_latest_snapshot(&self.working_dir)
+                {
+                    crate::commands::emit_unity_test_snapshot_changed(
+                        app_handle,
+                        &self.working_dir,
+                        "agent",
+                        &snapshot,
+                    );
+                }
+            }
+            Err(_) => crate::commands::emit_unity_test_progress(
+                app_handle,
+                &self.working_dir,
+                "agent",
+                crate::unity_bridge::test_runner::UnityTestProgress {
+                    active: false,
+                    run_id: run_id.to_string(),
+                    phase: "busy".to_string(),
+                    current_test: String::new(),
+                    completed: 0,
+                    total: 0,
+                    failed: 0,
+                    revision: 0,
+                },
+            ),
+        }
+
+        match test_result {
             Ok(snapshot) => {
                 let output = Self::format_unity_test_snapshot(&snapshot);
                 ExecutedToolResult::from_tool_result(ToolResult {

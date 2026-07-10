@@ -197,6 +197,10 @@ const assetView = createLazyViewState(
   () => import("./components/AssetView.vue"),
   "loadAssetView",
 );
+const unityTestDashboardView = createLazyViewState(
+  () => import("./components/UnityTestDashboardView.vue"),
+  "loadUnityTestDashboardView",
+);
 const viewPackageView = createLazyViewState(
   () => import("./components/ViewPackageView.vue"),
   "loadViewPackageView",
@@ -230,6 +234,10 @@ const assetViewComponent = assetView.component;
 const assetViewLoading = assetView.loading;
 const assetViewError = assetView.error;
 
+const unityTestDashboardViewComponent = unityTestDashboardView.component;
+const unityTestDashboardViewLoading = unityTestDashboardView.loading;
+const unityTestDashboardViewError = unityTestDashboardView.error;
+
 const viewPackageViewComponent = viewPackageView.component;
 const viewPackageViewLoading = viewPackageView.loading;
 const viewPackageViewError = viewPackageView.error;
@@ -259,6 +267,7 @@ const topTabs = computed<TopTabItem[]>(() => [
   { id: "knowledge", labelKey: "app.tab.knowledge", visible: displaySettings.showKnowledgeTab },
   { id: "collab", labelKey: "app.tab.collab", visible: displaySettings.showCollabTab },
   { id: "asset", labelKey: "app.tab.asset", visible: displaySettings.showAssetTab },
+  { id: "tests", labelKey: "app.tab.tests", visible: displaySettings.showTestsTab },
   { id: "views", labelKey: "app.tab.views", visible: displaySettings.showViewsTab },
   { id: "plugins", labelKey: "app.tab.plugins", visible: showPluginEntry && displaySettings.showPluginsTab },
   { id: "agent", labelKey: "app.tab.agent", visible: displaySettings.showAgentTab },
@@ -351,6 +360,11 @@ const workspaceButtonTitle = computed(() => {
   }
   return projectStore.workingDir || t("app.dir.notSetTitle");
 });
+
+watch(() => uiStore.testsMounted, (mounted) => {
+  if (!mounted) return;
+  void unityTestDashboardView.ensureLoaded();
+}, { immediate: true });
 const workspaceButtonLabel = computed(() =>
   switchingWorkspacePath.value ? t("app.dir.switching") : shortDir(projectStore.workingDir),
 );
@@ -1022,6 +1036,20 @@ watch(() => projectStore.workingDir, () => {
           :class="{ 'is-loading': assetViewLoading, 'is-error': !!assetViewError }"
         >
           {{ assetViewError || t("common.loading") }}
+        </div>
+
+        <component
+          :is="unityTestDashboardViewComponent"
+          v-if="uiStore.testsMounted && unityTestDashboardViewComponent"
+          v-show="uiStore.activeTab === 'tests'"
+          :working-dir="projectStore.workingDir"
+        />
+        <div
+          v-else-if="uiStore.testsMounted && uiStore.activeTab === 'tests'"
+          class="tab-loading-state"
+          :class="{ 'is-loading': unityTestDashboardViewLoading, 'is-error': !!unityTestDashboardViewError }"
+        >
+          {{ unityTestDashboardViewError || t("common.loading") }}
         </div>
 
         <component

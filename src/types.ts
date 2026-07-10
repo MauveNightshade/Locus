@@ -2644,6 +2644,70 @@ export interface UnityTestSnapshot {
   error?: UnityTestError;
 }
 
+export type UnityTestMode = "all" | "editmode" | "playmode";
+
+export interface UnityTestFilter {
+  testMode: UnityTestMode;
+  assemblyName?: string;
+  fixtureName?: string;
+  testName?: string;
+  search?: string;
+}
+
+export interface UnityTestDiscovery {
+  assemblies: UnityTestAssembly[];
+}
+
+export interface UnityTestAssembly {
+  name: string;
+  testMode: string;
+  fixtures: UnityTestFixture[];
+}
+
+export interface UnityTestFixture {
+  name: string;
+  tests: UnityTestMethod[];
+}
+
+export interface UnityTestMethod {
+  name: string;
+  fullName: string;
+  attributes: string[];
+  sourcePath?: string;
+  line?: number;
+}
+
+export interface UnityTestProgress {
+  active: boolean;
+  runId: string;
+  phase: string;
+  currentTest: string;
+  completed: number;
+  total: number;
+  failed: number;
+  revision: number;
+}
+
+export type UnityTestRunSource = "agent" | "dashboard";
+
+export interface UnityTestProgressEvent {
+  workingDir: string;
+  source: UnityTestRunSource;
+  progress: UnityTestProgress;
+}
+
+export interface UnityTestSnapshotChangedEvent {
+  workingDir: string;
+  source: UnityTestRunSource;
+  runId: string;
+  terminalStatus: string;
+}
+
+export interface UnityTestSourceNavigationResult {
+  opened: boolean;
+  positioned: boolean;
+}
+
 export interface UnityTestPreparation {
   method: string;
   status: string;
@@ -2651,7 +2715,7 @@ export interface UnityTestPreparation {
 }
 
 export interface UnityTestRunRequest {
-  testMode: "all" | "editmode" | "playmode";
+  testMode: UnityTestMode;
   assemblyName?: string;
   fixtureName?: string;
   testName?: string;
