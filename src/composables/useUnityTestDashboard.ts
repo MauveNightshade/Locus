@@ -32,11 +32,13 @@ import {
   broadUnityTestRunRequest,
   buildUnityTestRunRequest,
   filterUnityTestTree,
+  groupUnityTestTreeByMode,
   indexUnityTestDiscovery,
   mapUnityTestResults,
   selectedState,
   unityTestAssemblyKey,
   unityTestFixtureKey,
+  unityTestModeKey,
   type UnityTestLeaf,
   type UnityTestStatusFilter,
 } from "../utils/unityTestDashboard";
@@ -81,7 +83,7 @@ export function useUnityTestDashboard(workingDir: MaybeRefOrGetter<string>) {
   let unlistenSnapshot: UnlistenFn | null = null;
 
   const testIndex = computed(() => indexUnityTestDiscovery(discovery.value));
-  const resultByKey = computed(() => mapUnityTestResults(snapshot.value));
+  const resultByKey = computed(() => mapUnityTestResults(snapshot.value, testIndex.value));
   const filteredTree = computed(() => filterUnityTestTree(
     discovery.value,
     search.value,
@@ -89,6 +91,7 @@ export function useUnityTestDashboard(workingDir: MaybeRefOrGetter<string>) {
     statusFilter.value,
     resultByKey.value,
   ));
+  const filteredModeTree = computed(() => groupUnityTestTreeByMode(filteredTree.value));
   const inspectedTest = computed(() => inspectedKey.value
     ? testIndex.value.get(inspectedKey.value) ?? null
     : null);
@@ -129,6 +132,7 @@ export function useUnityTestDashboard(workingDir: MaybeRefOrGetter<string>) {
   function expandDiscoveredBranches() {
     const next = new Set(expandedKeys.value);
     for (const assembly of discovery.value?.assemblies ?? []) {
+      next.add(unityTestModeKey(assembly.testMode));
       next.add(unityTestAssemblyKey(assembly));
       for (const fixture of assembly.fixtures) {
         next.add(unityTestFixtureKey(assembly.testMode, assembly.name, fixture.name));
@@ -147,9 +151,13 @@ export function useUnityTestDashboard(workingDir: MaybeRefOrGetter<string>) {
     loading.value = true;
     error.value = null;
     try {
-      const next = await discoverUnityTests({ testMode: "all" });
+      const [next, nextSnapshot] = await Promise.all([
+        discoverUnityTests({ testMode: "all" }),
+        getUnityTestLatestSnapshot(),
+      ]);
       if (generation !== loadGeneration) return;
       discovery.value = next;
+      snapshot.value = nextSnapshot;
       reconcileSelection();
       expandDiscoveredBranches();
     } catch (nextError) {
@@ -185,7 +193,7 @@ export function useUnityTestDashboard(workingDir: MaybeRefOrGetter<string>) {
   async function loadWorkspace() {
     reset();
     if (!toValue(workingDir).trim()) return;
-    await Promise.all([refresh(), loadLatest(), loadActive()]);
+    await Promise.all([refresh(), loadActive()]);
   }
 
   function toggleExpanded(key: string) {
@@ -320,6 +328,7 @@ export function useUnityTestDashboard(workingDir: MaybeRefOrGetter<string>) {
     testIndex,
     resultByKey,
     filteredTree,
+    filteredModeTree,
     inspectedTest,
     inspectedResult,
     checkedTests,
