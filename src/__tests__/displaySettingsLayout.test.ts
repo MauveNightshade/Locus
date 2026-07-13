@@ -80,7 +80,7 @@ describe("display settings transcript alignment", () => {
 
     expect(chatView).toContain('v-if="displaySettings.showWelcomeSubtitle"');
 
-    expect(app).toContain('import { initFonts, useDisplaySettings } from "./composables/useDisplaySettings";');
+    expect(app).toContain('import { initFonts, initUiScale, useDisplaySettings } from "./composables/useDisplaySettings";');
     expect(app).toContain("const { state: displaySettings } = useDisplaySettings();");
     expect(app).toContain('{ id: "chat", labelKey: "app.tab.dev", visible: true }');
     expect(app).toContain('{ id: "settings", labelKey: "app.tab.settings", visible: true }');

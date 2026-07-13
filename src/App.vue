@@ -28,7 +28,7 @@ import AppUpdateModal from "./components/AppUpdateModal.vue";
 
 import { provideDiffOverlay } from "./composables/useDiffOverlay";
 import { initTheme } from "./composables/useTheme";
-import { initFonts, useDisplaySettings } from "./composables/useDisplaySettings";
+import { initFonts, initUiScale, useDisplaySettings } from "./composables/useDisplaySettings";
 import { isKnowledgeDownloadWindowLocation } from "./services/knowledgeDownloadWindow";
 import { isKnowledgeLexicalProgressWindowLocation } from "./services/knowledgeLexicalProgressWindow";
 import { isFeishuReferenceImportWindowLocation } from "./services/feishuReferenceImportWindow";
@@ -100,6 +100,7 @@ const showPluginEntry = true;
 
 initTheme(isUnityEmbedWindow ? "unityEmbed" : "main");
 initFonts();
+initUiScale();
 
 // -- Stores --
 const uiStore = useUiStore();
