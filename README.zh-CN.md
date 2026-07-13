@@ -14,6 +14,15 @@
 
 [![在 Bilibili 观看演示](https://img.youtube.com/vi/xoApXZMon9M/maxresdefault.jpg)](https://www.bilibili.com/video/BV1H4ReBNELD/)
 
+## MauveNightshade 分支
+
+本仓库基于 [r1n7aro/Locus](https://github.com/r1n7aro/Locus) fork。`main` 分支跟随官方上游发布线，[`mauvenightshade/main`](https://github.com/MauveNightshade/Locus/tree/mauvenightshade/main) 用于承载本 fork 的扩展。
+
+- **运行时 UI 缩放**：改善高分辨率和高 DPI 屏幕上的显示与操作体验。
+- **Unity 测试看板与测试运行器集成**：可在 Locus 中运行并查看 Unity 集成测试结果。
+
+本 fork 的安装包和发行说明发布在 [MauveNightshade/Locus Releases](https://github.com/MauveNightshade/Locus/releases)；官方文档仍可访问 [unity.farlocus.com](https://unity.farlocus.com/)。
+
 ## 概览
 
 `Locus for Unity`是一个面向Unity项目的**开源**AI Agent。
@@ -80,7 +89,7 @@ bun tauri build
 
 ## 发布版本
 
-发布安装包与版本说明见 [GitHub Releases](https://github.com/r1n7aro/Locus/releases)。
+本 fork 的安装包与版本说明见 [MauveNightshade/Locus Releases](https://github.com/MauveNightshade/Locus/releases)。官方发行版本见 [r1n7aro/Locus Releases](https://github.com/r1n7aro/Locus/releases)。
 
 本地构建两个 Windows 发布安装包：
 
@@ -111,7 +120,3 @@ bun run release:installers
 ## 免责声明
 
 本项目是一个面向 Unity Editor 的免费开源工具，与 Unity Technologies 无关联。
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=r1n7aro/Locus&type=Date)](https://www.star-history.com/#r1n7aro/Locus&Date)

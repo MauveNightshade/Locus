@@ -14,6 +14,15 @@ English | [简体中文](README.zh-CN.md)
 
 [![Watch the demo on YouTube](https://img.youtube.com/vi/xoApXZMon9M/maxresdefault.jpg)](https://www.youtube.com/watch?v=xoApXZMon9M)
 
+## MauveNightshade Fork
+
+This repository is a fork of [r1n7aro/Locus](https://github.com/r1n7aro/Locus). The `main` branch tracks the official upstream release line, while [`mauvenightshade/main`](https://github.com/MauveNightshade/Locus/tree/mauvenightshade/main) carries this fork's additions.
+
+- **Runtime UI scaling** for high-resolution and high-DPI displays.
+- **Unity test dashboard and test-runner integration** for running and reviewing Unity integration tests from Locus.
+
+Fork-specific installers and release notes are published on the [MauveNightshade/Locus Releases](https://github.com/MauveNightshade/Locus/releases) page. Official documentation remains available at [unity.farlocus.com](https://unity.farlocus.com/en).
+
 ## Overview
 
 `Locus for Unity` is an open-source AI Agent for Unity projects.
@@ -80,7 +89,7 @@ This command rebuilds the merged Unity Editor DLL bundles, prepares the managed 
 
 ## Releases
 
-See [GitHub Releases](https://github.com/r1n7aro/Locus/releases) for published installers and release notes.
+See [MauveNightshade/Locus Releases](https://github.com/MauveNightshade/Locus/releases) for installers and release notes published by this fork. For official releases, see [r1n7aro/Locus Releases](https://github.com/r1n7aro/Locus/releases).
 
 To build both Windows release installers locally:
 
@@ -111,7 +120,3 @@ Published installers include the root license file, the root third-party notices
 ## Disclaimer
 
 This project is a free and open-source tool for the Unity Editor, and is not affiliated with Unity Technologies.
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=r1n7aro/Locus&type=Date)](https://www.star-history.com/#r1n7aro/Locus&Date)
