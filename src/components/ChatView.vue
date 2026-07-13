@@ -82,7 +82,7 @@ import {
   getChatSubmitModifierLabel,
   useChatInputSettings,
 } from "../composables/useChatInputSettings";
-import { useDisplaySettings } from "../composables/useDisplaySettings";
+import { uiScaleFactor, useDisplaySettings } from "../composables/useDisplaySettings";
 import { useKnowledgeAccessMode } from "../composables/useKnowledgeAccessMode";
 import {
   buildChatMessageClipboardPayload,
@@ -2452,7 +2452,7 @@ function onSessionSplitterMouseDown(e: MouseEvent) {
 
 function onSessionSplitterMouseMove(e: MouseEvent) {
   if (!isDraggingSession.value) return;
-  const x = e.clientX - sessionSplitterLayoutLeft;
+  const x = (e.clientX - sessionSplitterLayoutLeft) / uiScaleFactor();
   scheduleSessionPanelWidth(x);
 }
 

@@ -17,7 +17,7 @@ import BaseSegmented from "../ui/BaseSegmented.vue";
 import BaseSwitch from "../ui/BaseSwitch.vue";
 
 const { mainPreference, unityEmbedPreference, setThemePreference } = useTheme();
-const { state: display, set: setDisplay, setFont } = useDisplaySettings();
+const { state: display, set: setDisplay, setFont, setUiScale } = useDisplaySettings();
 const notificationStore = useNotificationStore();
 const viewOpenInExistingWindow = ref(true);
 const viewOpenInExistingWindowReady = ref(false);
@@ -25,6 +25,7 @@ const viewOpenInExistingWindowBusy = ref(false);
 const viewWindowsAboveMain = ref(false);
 const viewWindowsAboveMainReady = ref(false);
 const viewWindowsAboveMainBusy = ref(false);
+const uiScalePreview = ref(display.uiScale);
 
 const options: { value: ThemePreference; labelKey: string }[] = [
   { value: "system", labelKey: "settings.display.themeSystem" },
@@ -86,6 +87,7 @@ const topNavigationToggles = [
   { key: "showKnowledgeTab", labelKey: "settings.display.showKnowledgeTab" },
   { key: "showCollabTab", labelKey: "settings.display.showCollabTab" },
   { key: "showAssetTab", labelKey: "settings.display.showAssetTab" },
+  { key: "showTestsTab", labelKey: "settings.display.showTestsTab" },
   { key: "showViewsTab", labelKey: "settings.display.showViewsTab" },
   { key: "showPluginsTab", labelKey: "settings.display.showPluginsTab" },
   { key: "showAgentTab", labelKey: "settings.display.showAgentTab" },
@@ -174,9 +176,65 @@ async function updateViewWindowsAboveMain(value: boolean) {
     viewWindowsAboveMainBusy.value = false;
   }
 }
+
+function updateUiScalePreview(event: Event) {
+  const target = event.target as HTMLInputElement | null;
+  if (!target) return;
+  uiScalePreview.value = Number(target.value);
+}
+
+function commitUiScale() {
+  setUiScale(uiScalePreview.value);
+  uiScalePreview.value = display.uiScale;
+}
+
+function changeUiScale(value: number) {
+  setUiScale(value);
+  uiScalePreview.value = display.uiScale;
+}
 </script>
 
 <template>
+  <div class="settings-section">
+    <div class="section-label">{{ t("settings.display.uiScaleTitle") }}</div>
+    <p class="section-desc">{{ t("settings.display.uiScaleDesc") }}</p>
+    <div class="ui-scale-row">
+      <button
+        class="ui-scale-step"
+        type="button"
+        :disabled="display.uiScale <= 50"
+        :aria-label='t("settings.display.uiScaleDecrease")'
+        @click="changeUiScale(display.uiScale - 10)"
+      >-</button>
+      <input
+        class="ui-scale-slider"
+        type="range"
+        min="50"
+        max="300"
+        step="10"
+        :value="uiScalePreview"
+        :style="{ '--ui-scale-percent': `${((uiScalePreview - 50) / 250) * 100}%` }"
+        :aria-label='t("settings.display.uiScaleTitle")'
+        @input="updateUiScalePreview"
+        @change="commitUiScale"
+      />
+      <button
+        class="ui-scale-step"
+        type="button"
+        :disabled="display.uiScale >= 300"
+        :aria-label='t("settings.display.uiScaleIncrease")'
+        @click="changeUiScale(display.uiScale + 10)"
+      >+</button>
+      <span class="ui-scale-value">{{ uiScalePreview }}%</span>
+      <button
+        class="ui-scale-reset"
+        type="button"
+        :disabled="display.uiScale === 100"
+        @click="changeUiScale(100)"
+      >{{ t("settings.display.uiScaleReset") }}</button>
+    </div>
+  </div>
+
   <div class="settings-section">
     <div class="section-label">{{ t("settings.display.themeTitle") }}</div>
     <p class="section-desc">{{ t("settings.display.themeDesc") }}</p>
@@ -438,6 +496,69 @@ async function updateViewWindowsAboveMain(value: boolean) {
   display: grid;
   gap: 8px;
   max-width: 560px;
+}
+
+.ui-scale-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(440px, 100%);
+}
+
+.ui-scale-slider {
+  --ui-scale-percent: 20%;
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  min-width: 80px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent-color) 0 var(--ui-scale-percent), var(--border-color) var(--ui-scale-percent) 100%);
+  cursor: pointer;
+}
+
+.ui-scale-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--panel-bg);
+  border-radius: 50%;
+  background: var(--accent-color);
+}
+
+.ui-scale-step,
+.ui-scale-reset {
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--input-bg);
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.ui-scale-step {
+  width: 26px;
+  height: 26px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.ui-scale-reset {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.ui-scale-step:disabled,
+.ui-scale-reset:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ui-scale-value {
+  width: 42px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: right;
 }
 
 .theme-row {

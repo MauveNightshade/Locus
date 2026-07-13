@@ -4093,10 +4093,12 @@ mod tests {
         store
             .set_plan_mode_active(&session_id, true)
             .expect("re-enter plan mode");
-        assert!(!store
-            .get_plan_mode_state(&session_id)
-            .expect("read state")
-            .exited_pending_notice);
+        assert!(
+            !store
+                .get_plan_mode_state(&session_id)
+                .expect("read state")
+                .exited_pending_notice
+        );
 
         store
             .set_plan_mode_active(&session_id, false)
@@ -6068,7 +6070,12 @@ mod tests {
         let small_window_budget = compact::compact_user_message_token_budget(32_000);
         assert_eq!(small_window_budget, 8_000);
         store
-            .compact_messages(&session_id, &summary_msg, "assistant-2", small_window_budget)
+            .compact_messages(
+                &session_id,
+                &summary_msg,
+                "assistant-2",
+                small_window_budget,
+            )
             .expect("compact messages");
 
         let prompt_ids = store

@@ -1873,8 +1873,7 @@ fn test_collect_guids_ignores_multibyte_after_guid_marker() {
     // skip the junk, never panic, and still collect real guids.
     let cjk_long = format!("  value: 'guid: {}'", "中".repeat(11)); // 33 bytes after the marker
     let cjk_short = "  note: 'guid: 中文资产'";
-    let valid =
-        "  m_Script: {fileID: 11500000, guid: aabbccdd11223344aabbccdd11223344, type: 3}";
+    let valid = "  m_Script: {fileID: 11500000, guid: aabbccdd11223344aabbccdd11223344, type: 3}";
     let lines: Vec<&str> = vec![cjk_long.as_str(), cjk_short, valid];
 
     let guids = collect_guids_from_lines(&lines, 0, lines.len());

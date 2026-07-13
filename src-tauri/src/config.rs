@@ -368,10 +368,7 @@ pub struct AppConfig {
     /// streamed. `0` disables automatic retries; values are clamped to
     /// `llm::retry::MAX_RETRIES_LIMIT`. Mirrored into `llm::retry` at
     /// startup and on change.
-    #[serde(
-        default = "default_llm_retry_max_attempts",
-        with = "serde_atomic_u32"
-    )]
+    #[serde(default = "default_llm_retry_max_attempts", with = "serde_atomic_u32")]
     pub llm_retry_max_attempts: Arc<AtomicU32>,
     /// Reroute literal `<think>`/`<thinking>` prefixes of streamed content
     /// into the thinking channel on the OpenAI-compatible transports
@@ -395,10 +392,7 @@ pub struct AppConfig {
     /// tree (default 3). Excess calls fail with an error tool result instead
     /// of queueing. Clamped to 1..=SUBAGENT_MAX_CONCURRENT_LIMIT on read and
     /// write.
-    #[serde(
-        default = "default_subagent_max_concurrent",
-        with = "serde_atomic_u32"
-    )]
+    #[serde(default = "default_subagent_max_concurrent", with = "serde_atomic_u32")]
     pub subagent_max_concurrent: Arc<AtomicU32>,
     #[serde(skip)]
     config_path: Arc<Mutex<Option<PathBuf>>>,
@@ -702,8 +696,10 @@ impl AppConfig {
     }
 
     pub fn set_llm_retry_max_attempts(&self, value: u32) -> Result<(), String> {
-        self.llm_retry_max_attempts
-            .store(crate::llm::retry::clamp_max_retries(value), Ordering::Relaxed);
+        self.llm_retry_max_attempts.store(
+            crate::llm::retry::clamp_max_retries(value),
+            Ordering::Relaxed,
+        );
         self.persist()
     }
 

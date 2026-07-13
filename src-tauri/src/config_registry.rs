@@ -511,6 +511,8 @@ fn collect_permissions(app_handle: &tauri::AppHandle, out: &mut Vec<ConfigEntry>
         ("bash", "Shell command execution"),
         ("web_fetch", "HTTP fetch from the web"),
         ("unity_execute", "Execute C# code in Unity"),
+        ("unity_test_find", "Find Unity Test Framework tests"),
+        ("unity_test_run", "Run Unity Test Framework tests"),
         ("unity_run_states", "Run Unity state-machine debugging flow"),
         ("unity_recompile", "Trigger Unity recompilation"),
         ("unity_hot_reload", "Hot-patch C# method edits into Unity"),
@@ -536,7 +538,8 @@ fn collect_permissions(app_handle: &tauri::AppHandle, out: &mut Vec<ConfigEntry>
 
     for (name, desc) in tool_list {
         let default_mode = match name {
-            "write" | "edit" | "bash" | "web_fetch" | "unity_execute" | "unity_run_states" => "ask",
+            "write" | "edit" | "bash" | "web_fetch" | "unity_execute" | "unity_run_states"
+            | "unity_test_run" => "ask",
             _ => "auto",
         };
         let current = perms.get(name).map(|s| s.as_str()).unwrap_or(default_mode);

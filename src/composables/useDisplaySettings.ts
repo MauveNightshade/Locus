@@ -17,6 +17,8 @@ export type AssetRefClickAction =
   | "locusInspectorWindow";
 
 export interface DisplaySettings {
+  /** Overall Locus UI scale, stored as a percentage from 50 to 300 */
+  uiScale: number;
   /** Show the welcome subtitle above the chat input */
   showWelcomeSubtitle: boolean;
   /** Show Knowledge tab in the top navigation */
@@ -25,6 +27,8 @@ export interface DisplaySettings {
   showCollabTab: boolean;
   /** Show Asset tab in the top navigation */
   showAssetTab: boolean;
+  /** Show Tests tab in the top navigation */
+  showTestsTab: boolean;
   /** Show Views tab in the top navigation */
   showViewsTab: boolean;
   /** Show Plugins tab in the top navigation */
@@ -96,6 +100,10 @@ export interface DisplaySettings {
 }
 
 const STORAGE_KEY = "locus-display-settings";
+export const UI_SCALE_MIN = 50;
+export const UI_SCALE_MAX = 300;
+export const UI_SCALE_STEP = 10;
+export const UI_SCALE_DEFAULT = 100;
 
 const defaultFonts: Record<FontSlot, string> = {
   ui: "",
@@ -106,10 +114,12 @@ const defaultFonts: Record<FontSlot, string> = {
 };
 
 const defaults: DisplaySettings = {
+  uiScale: UI_SCALE_DEFAULT,
   showWelcomeSubtitle: true,
   showKnowledgeTab: true,
   showCollabTab: true,
   showAssetTab: true,
+  showTestsTab: true,
   showViewsTab: true,
   showPluginsTab: true,
   showAgentTab: true,
@@ -153,7 +163,12 @@ function load(): DisplaySettings {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return { ...defaults, ...parsed, fonts: { ...defaultFonts, ...parsed.fonts } };
+      return {
+        ...defaults,
+        ...parsed,
+        uiScale: normalizeUiScale(parsed.uiScale),
+        fonts: { ...defaultFonts, ...parsed.fonts },
+      };
     }
   } catch { /* ignore */ }
   return { ...defaults, fonts: { ...defaultFonts } };
@@ -177,7 +192,33 @@ export function useDisplaySettings() {
     applyFonts(state.fonts);
   }
 
-  return { state, set, setFont };
+  function setUiScale(value: number) {
+    state.uiScale = normalizeUiScale(value);
+    save({ ...state });
+    applyUiScale(state.uiScale);
+  }
+
+  return { state, set, setFont, setUiScale };
+}
+
+export function normalizeUiScale(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return UI_SCALE_DEFAULT;
+  const stepped = Math.round(numeric / UI_SCALE_STEP) * UI_SCALE_STEP;
+  return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, stepped));
+}
+
+export function uiScaleFactor(): number {
+  return normalizeUiScale(state.uiScale) / 100;
+}
+
+function applyUiScale(scale: number) {
+  document.documentElement.style.zoom = `${scale}%`;
+}
+
+/** Call once from App.vue to apply the saved UI scale before rendering. */
+export function initUiScale() {
+  applyUiScale(state.uiScale);
 }
 
 /* ---- Font CSS-variable application ---- */
