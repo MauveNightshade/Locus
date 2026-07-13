@@ -1,12 +1,12 @@
 {
-  "version": "0.5.7",
-  "releasedAt": "2026-07-10",
+  "version": "0.5.7-mauvenightshade.1",
+  "releasedAt": "2026-07-13",
   "channel": "stable",
   "installers": [
     {
       "id": "windows-x64",
       "label": "Windows x64",
-      "url": "https://github.com/r1n7aro/Locus/releases/download/v0.5.7/locus_0.5.7_x64-setup.exe",
+      "url": "https://github.com/r1n7aro/Locus/releases/download/v0.5.7-mauvenightshade.1/locus_0.5.7-mauvenightshade.1_x64-setup.exe",
       "platform": "windows",
       "arch": "x64",
       "includesManagedPython": true,
@@ -17,7 +17,7 @@
     {
       "id": "windows-x64-without-embed-python-git",
       "label": "Windows x64 - system Python/Git",
-      "url": "https://github.com/r1n7aro/Locus/releases/download/v0.5.7/locus_0.5.7_x64-without_embed_python_git-setup.exe",
+      "url": "https://github.com/r1n7aro/Locus/releases/download/v0.5.7-mauvenightshade.1/locus_0.5.7-mauvenightshade.1_x64-without_embed_python_git-setup.exe",
       "platform": "windows",
       "arch": "x64",
       "includesManagedPython": false,
@@ -29,9 +29,22 @@
   "locales": {
     "zh": {
       "title": "发现新版本",
-      "summary": "Locus v0.5.7 (2026-07-10)",
+      "summary": "Locus v0.5.7-mauvenightshade.1 (2026-07-13)",
       "changelogUrl": "/overview/latest-version",
       "changes": [
+        {
+          "title": "v0.5.7-mauvenightshade.1（新增）",
+          "items": [
+            "**运行时 UI 缩放。** 新增可调整的界面缩放设置，方便在高分辨率屏幕上使用。",
+            "**Unity 测试看板。** 新增测试运行、结果展示与诊断能力，便于验证 Unity 集成。"
+          ]
+        },
+        {
+          "title": "v0.5.7-mauvenightshade.1（修复）",
+          "items": [
+            "修复 Session、Test 和 Plugin 页面在高 UI 缩放下拖动侧栏时的宽度跳变。"
+          ]
+        },
         {
           "title": "v0.5.7（新增）",
           "items": [
@@ -175,23 +188,36 @@
       "downloadChannels": [
         {
           "label": "Windows x64",
-          "url": "https://github.com/r1n7aro/Locus/releases/download/v0.5.7/locus_0.5.7_x64-setup.exe"
+          "url": "https://github.com/MauveNightshade/Locus/releases/download/v0.5.7-mauvenightshade.1/locus_0.5.7-mauvenightshade.1_x64-setup.exe"
         },
         {
           "label": "Windows x64（系统 Python/Git）",
-          "url": "https://github.com/r1n7aro/Locus/releases/download/v0.5.7/locus_0.5.7_x64-without_embed_python_git-setup.exe"
+          "url": "https://github.com/MauveNightshade/Locus/releases/download/v0.5.7-mauvenightshade.1/locus_0.5.7-mauvenightshade.1_x64-without_embed_python_git-setup.exe"
         },
         {
           "label": "GitHub Releases",
-          "url": "https://github.com/r1n7aro/Locus/releases"
+          "url": "https://github.com/MauveNightshade/Locus/releases"
         }
       ]
     },
     "en": {
       "title": "Update available",
-      "summary": "Locus v0.5.7 (2026-07-10)",
+      "summary": "Locus v0.5.7-mauvenightshade.1 (2026-07-13)",
       "changelogUrl": "/en/overview/latest-version",
       "changes": [
+        {
+          "title": "v0.5.7-mauvenightshade.1 (Added)",
+          "items": [
+            "**Runtime UI scaling.** Added an adjustable interface scale setting for high-resolution displays.",
+            "**Unity test dashboard.** Added test execution, result reporting, and diagnostics for Unity integration validation."
+          ]
+        },
+        {
+          "title": "v0.5.7-mauvenightshade.1 (Fixed)",
+          "items": [
+            "Fixed sidebar width jumps while dragging on the Session, Test, and Plugin views at high UI scales."
+          ]
+        },
         {
           "title": "v0.5.7 (Added)",
           "items": [
@@ -335,15 +361,15 @@
       "downloadChannels": [
         {
           "label": "Windows x64",
-          "url": "https://github.com/r1n7aro/Locus/releases/download/v0.5.7/locus_0.5.7_x64-setup.exe"
+          "url": "https://github.com/MauveNightshade/Locus/releases/download/v0.5.7-mauvenightshade.1/locus_0.5.7-mauvenightshade.1_x64-setup.exe"
         },
         {
           "label": "Windows x64 (system Python/Git)",
-          "url": "https://github.com/r1n7aro/Locus/releases/download/v0.5.7/locus_0.5.7_x64-without_embed_python_git-setup.exe"
+          "url": "https://github.com/MauveNightshade/Locus/releases/download/v0.5.7-mauvenightshade.1/locus_0.5.7-mauvenightshade.1_x64-without_embed_python_git-setup.exe"
         },
         {
           "label": "GitHub Releases",
-          "url": "https://github.com/r1n7aro/Locus/releases"
+          "url": "https://github.com/MauveNightshade/Locus/releases"
         }
       ]
     }
