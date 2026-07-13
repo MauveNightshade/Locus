@@ -208,6 +208,10 @@ export function normalizeUiScale(value: unknown): number {
   return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, stepped));
 }
 
+export function uiScaleFactor(): number {
+  return normalizeUiScale(state.uiScale) / 100;
+}
+
 function applyUiScale(scale: number) {
   document.documentElement.style.zoom = `${scale}%`;
 }

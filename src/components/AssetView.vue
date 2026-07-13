@@ -360,13 +360,13 @@ const layoutToggleTitle = computed(() => (
 }
 
 .ax-pane-tree {
-  flex-shrink: 0;
-  min-width: 220px;
+  flex-shrink: 1;
+  min-width: min(220px, 22vw);
 }
 
 .ax-pane-directory {
-  flex-shrink: 0;
-  min-width: 260px;
+  flex-shrink: 1;
+  min-width: min(260px, 26vw);
   border-left: 1px solid var(--border-color);
   border-right: 1px solid var(--border-color);
 }

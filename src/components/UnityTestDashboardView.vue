@@ -12,6 +12,7 @@ import {
   Square,
 } from "lucide";
 import { t } from "../i18n";
+import { uiScaleFactor } from "../composables/useDisplaySettings";
 import { useUnityTestDashboard } from "../composables/useUnityTestDashboard";
 import type {
   UnityTestAssemblyView,
@@ -109,9 +110,10 @@ function terminalStatusLabel(status: string): string {
 }
 
 function onResizeMove(event: MouseEvent) {
-  const containerWidth = dashboardRef.value?.getBoundingClientRect().width ?? window.innerWidth;
+  const containerWidth = dashboardRef.value?.clientWidth ?? window.innerWidth / uiScaleFactor();
   const maxWidth = Math.max(420, containerWidth - 360);
-  browserPaneWidth.value = Math.min(maxWidth, Math.max(300, resizeStartWidth + event.clientX - resizeStartX));
+  const delta = (event.clientX - resizeStartX) / uiScaleFactor();
+  browserPaneWidth.value = Math.min(maxWidth, Math.max(300, resizeStartWidth + delta));
 }
 
 function onResizeEnd() {
@@ -123,7 +125,7 @@ function onResizeEnd() {
 
 function onResizeStart(event: MouseEvent) {
   resizeStartX = event.clientX;
-  resizeStartWidth = dashboardRef.value?.querySelector<HTMLElement>(".browser-pane")?.getBoundingClientRect().width ?? 420;
+  resizeStartWidth = dashboardRef.value?.querySelector<HTMLElement>(".browser-pane")?.offsetWidth ?? 420;
   document.addEventListener("mousemove", onResizeMove);
   document.addEventListener("mouseup", onResizeEnd);
   document.body.style.cursor = "col-resize";

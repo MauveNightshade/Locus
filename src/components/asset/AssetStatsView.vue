@@ -754,7 +754,7 @@ async function openRiskDetail(kind: AssetRiskKind) {
 }
 
 .overview-grid-summary {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
   margin-bottom: 12px;
 }
 

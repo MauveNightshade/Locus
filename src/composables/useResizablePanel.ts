@@ -1,5 +1,6 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import { acquireSelectionLock } from "./useSelectionLock";
+import { uiScaleFactor } from "./useDisplaySettings";
 
 export interface ResizablePanelOptions {
   storageKey: string;
@@ -64,7 +65,7 @@ export function useResizablePanel(containerRef: { value: HTMLElement | null }, o
     const pos = options.direction === "vertical"
       ? e.clientY - rect.top
       : e.clientX - rect.left;
-    size.value = clampSize(pos);
+    size.value = clampSize(pos / uiScaleFactor());
   }
 
   function onMouseUp() {
