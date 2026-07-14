@@ -18,8 +18,8 @@ includes a multi-megabyte TLS data-corruption regression test.
 
 ## Production Reproduction
 
-- Session: `576a7d1a-0573-45fb-8359-7d360ae1b40a`
-- Workspace: `E:\UnityProjects\Guohezu`
+- Session: redacted local session identifier
+- Workspace: redacted local workspace path
 - Official endpoint: `https://api.deepseek.com/anthropic`
 - Model: `deepseek-v4-pro`
 - The configured endpoint named `MICU-*` was never used.

@@ -91,7 +91,7 @@ def send_httpx(url: str, body_path: Path, request_id: str) -> None:
         "anthropic-version": "2023-06-01",
         "User-Agent": "claude-cli/2.1.92 (external, sdk-cli)",
         "x-app": "cli",
-        "x-claude-code-session-id": "576a7d1a-0573-45fb-8359-7d360ae1b40a",
+        "x-claude-code-session-id": "<redacted-session-id>",
         "x-client-request-id": request_id,
         "x-stainless-arch": "x64",
         "x-stainless-lang": "js",
