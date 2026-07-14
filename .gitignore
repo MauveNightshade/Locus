@@ -56,7 +56,6 @@ locus_unity/Editor/Roslyn/Locus.Roslyn.dll
 .claude
 .agents
 .opencode
-.trellis
 
 # Workspace-only directories
 plans/
