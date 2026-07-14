@@ -1,0 +1,31 @@
+{
+  "id": "unity-test-framework",
+  "name": "unity-test-framework",
+  "title": "Unity Test Framework — Agent-driven Unity testing capability",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "MauveNightshade",
+  "assignee": "MauveNightshade",
+  "createdAt": "2026-07-09",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "unity-test-framework",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-09-unity-test-core-loop",
+    "07-09-unity-test-collaboration",
+    "07-09-unity-test-recorder",
+    "07-09-unity-test-dashboard"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
